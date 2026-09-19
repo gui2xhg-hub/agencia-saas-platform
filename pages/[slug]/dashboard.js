@@ -10,6 +10,9 @@ export default function DashboardAgencia() {
   const [tenant, setTenant] = useState(null);
   const [activeTab, setActiveTab] = useState('clientes'); // 'clientes' | 'contratos' | 'financeiro' | 'posts'
 
+  // DATA DE NAVEGAÇÃO DO CALENDÁRIO / CRONOGRAMA
+  const [currentDate, setCurrentDate] = useState(new Date());
+
   // DADOS DO BANCO
   const [clients, setClients] = useState([]);
   const [contracts, setContracts] = useState([]);
@@ -24,12 +27,13 @@ export default function DashboardAgencia() {
   const [showContractModal, setShowContractModal] = useState(false);
   const [contractForm, setContractForm] = useState({
     client_id: '',
-    contract_name: 'Pack Padrão - Social Media',
-    total_monthly_value: 800,
-    duration_months: 3,
-    payment_frequency: 'semanal',
-    installment_value: 200,
-    start_date: new Date().toISOString().substring(0, 10)
+    contract_name: 'Pack Ouro - Social Media',
+    total_monthly_value: 1200,
+    duration_months: 6,
+    payment_frequency: 'mensal',
+    installment_value: 1200,
+    start_date: new Date().toISOString().substring(0, 10),
+    included_services: '12 Reels / vídeos curtos, 8 Posts estáticos/carrossel, Gestão de Anúncios (Meta Ads), Relatório mensal de performance'
   });
 
   const [showExpenseModal, setShowExpenseModal] = useState(false);
@@ -45,6 +49,13 @@ export default function DashboardAgencia() {
     copy_text: '',
     hashtags: '#agencia #socialmedia'
   });
+
+  // MODAL DE BAIXA FINANCEIRA MANUAL
+  const [selectedInvoice, setSelectedInvoice] = useState(null);
+  const [paymentAmount, setPaymentAmount] = useState('');
+
+  // MODAL DE DETALHES DO POST
+  const [selectedPostDetail, setSelectedPostDetail] = useState(null);
 
   useEffect(() => {
     if (router.isReady && slug) {
@@ -79,7 +90,7 @@ export default function DashboardAgencia() {
       if (pRes.data) setPosts(pRes.data);
 
     } catch (e) {
-      console.error("Erro ao carregar dados da agência:", e);
+      console.error("Erro ao carregar dados:", e);
     } finally {
       setLoading(false);
     }
@@ -123,7 +134,8 @@ export default function DashboardAgencia() {
         duration_months: totalMonths,
         payment_frequency: freq,
         installment_value: instVal,
-        start_date: contractForm.start_date
+        start_date: contractForm.start_date,
+        included_services: contractForm.included_services
       }])
       .select()
       .single();
@@ -194,21 +206,53 @@ export default function DashboardAgencia() {
     setPostForm({ client_id: '', title: '', scheduled_date: new Date().toISOString().substring(0, 10), scheduled_time: '18:00', media_url: '', copy_text: '', hashtags: '#agencia' });
   };
 
-  const sendWhatsAppReminder = (invoice) => {
-    const clientData = clients.find(c => c.id === invoice.client_id);
-    const cleanPhone = clientData?.whatsapp ? clientData.whatsapp.replace(/\D/g, '') : '';
-    if (!cleanPhone) return alert("Cliente não possui número de WhatsApp cadastrado.");
+  // BAIXA MANUAL DE FATURA
+  const handleConfirmPayment = async (e) => {
+    e.preventDefault();
+    if (!selectedInvoice) return;
 
-    const portalUrl = `${window.location.origin}/portal/${clientData.access_token}`;
-    const msg = `Olá *${clientData.name}*! Lembrete da fatura com vencimento em *${new Date(invoice.due_date + 'T00:00:00').toLocaleDateString('pt-BR')}* no valor de *R$ ${Number(invoice.amount).toFixed(2)}*.\n\nAcesse seu portal para visualizar e pagar via PIX:\n👉 ${portalUrl}`;
+    const paidVal = Number(paymentAmount);
+    if (isNaN(paidVal) || paidVal <= 0) return alert("Digite um valor válido.");
 
-    window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(msg)}`, '_blank');
+    const { error } = await supabase
+      .from('agency_invoices')
+      .update({
+        status: 'pago',
+        amount: paidVal
+      })
+      .eq('id', selectedInvoice.id);
+
+    if (error) return alert("Erro ao registrar pagamento: " + error.message);
+
+    setInvoices(invoices.map(inv => inv.id === selectedInvoice.id ? { ...inv, status: 'pago', amount: paidVal } : inv));
+    setSelectedInvoice(null);
+    setPaymentAmount('');
+    alert("Pagamento registrado com sucesso e financeiro recalculado!");
   };
+
+  // AUXILIARES DE NAVEGAÇÃO DE MÊS
+  const year = currentDate.getFullYear();
+  const month = currentDate.getMonth();
+
+  const handlePrevMonth = () => setCurrentDate(new Date(year, month - 1, 1));
+  const handleNextMonth = () => setCurrentDate(new Date(year, month + 1, 1));
+
+  const monthNames = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
+
+  // FILTRAR POSTS PELO MÊS SELECIONADO
+  const selectedMonthPosts = posts.filter(p => {
+    if (!p.scheduled_date) return false;
+    const d = new Date(p.scheduled_date + 'T00:00:00');
+    return d.getFullYear() === year && d.getMonth() === month;
+  });
+
+  // LÓGICA DO CALENDÁRIO EM GRADE
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const firstDayIndex = new Date(year, month, 1).getDay();
 
   if (loading) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><p className="text-xs text-gray-400 animate-pulse">Carregando ERP da Agência...</p></div>;
   if (!tenant) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><h1 className="text-xl font-bold text-orange-500">Agência não encontrada</h1></div>;
 
-  // CORES DINÂMICAS VINDAS DO MASTER
   const primaryColor = tenant.primary_color || '#FF8C00';
   const buttonTextColor = tenant.button_text_color || '#FFFFFF';
   const secondaryColor = tenant.secondary_color || '#090D16';
@@ -216,16 +260,24 @@ export default function DashboardAgencia() {
   const textColor = tenant.text_color || '#FFFFFF';
   const priceColor = tenant.price_color || '#FF8C00';
 
-  // DRE / FINANCEIRO
+  // FINANCEIRO / DRE
   const totalReceitasPagas = invoices.filter(i => i.status === 'pago').reduce((a, b) => a + Number(b.amount), 0);
   const totalReceitasPendentes = invoices.filter(i => i.status === 'pendente').reduce((a, b) => a + Number(b.amount), 0);
   const totalDespesas = expenses.reduce((a, b) => a + Number(b.amount), 0);
   const lucroProjetado = (totalReceitasPagas + totalReceitasPendentes) - totalDespesas;
 
+  // FATURAS COM VENCIMENTO PRÓXIMO (3 DIAS)
+  const todayStr = new Date().toISOString().substring(0, 10);
+  const upcomingInvoices = invoices.filter(inv => {
+    if (inv.status === 'pago') return false;
+    const diff = (new Date(inv.due_date + 'T00:00:00') - new Date(todayStr + 'T00:00:00')) / (1000 * 60 * 60 * 24);
+    return diff >= 0 && diff <= 3;
+  });
+
   return (
     <div className="min-h-screen font-sans pb-20 transition-colors" style={{ backgroundColor: secondaryColor, color: textColor }}>
       
-      {/* HEADER DINÂMICO */}
+      {/* HEADER */}
       <header className="border-b border-white/10 sticky top-0 z-30 backdrop-blur-md bg-opacity-90" style={{ backgroundColor: cardBgColor }}>
         <div className="max-w-7xl mx-auto px-4 py-4 flex flex-col sm:flex-row justify-between items-center gap-4">
           <div className="flex items-center space-x-3">
@@ -246,10 +298,10 @@ export default function DashboardAgencia() {
         {/* NAVEGAÇÃO DE ABAS */}
         <div className="max-w-7xl mx-auto px-4 flex space-x-2 border-t border-white/5 pt-2 overflow-x-auto">
           {[
-            { id: 'clientes', label: '👥 Clientes' },
-            { id: 'contratos', label: '📄 Contratos' },
+            { id: 'clientes', label: '👥 Clientes & Cronogramas' },
+            { id: 'contratos', label: '📄 Contratos & Packs' },
             { id: 'financeiro', label: '💰 Financeiro & DRE' },
-            { id: 'posts', label: '📅 Calendário de Posts' }
+            { id: 'posts', label: '📅 Calendário Mensal' }
           ].map(tab => (
             <button
               key={tab.id}
@@ -267,62 +319,112 @@ export default function DashboardAgencia() {
       {/* CONTEÚDO PRINCIPAL */}
       <main className="max-w-7xl mx-auto px-4 pt-6 space-y-6">
 
-        {/* TAB 1: CLIENTES */}
-        {activeTab === 'clientes' && (
-          <div className="space-y-4">
-            <div className="flex justify-between items-center">
-              <h2 className="text-sm font-bold opacity-80">Clientes da Agência ({clients.length})</h2>
-            </div>
+        {/* CONTROLE DE MÊS / CRONOGRAMA */}
+        <div className="border border-white/10 p-4 rounded-3xl flex justify-between items-center shadow-xl" style={{ backgroundColor: cardBgColor }}>
+          <button onClick={handlePrevMonth} className="bg-black/40 hover:bg-black/60 text-xs font-extrabold px-4 py-2 rounded-xl transition border border-white/10">
+            ◀ Mês Anterior
+          </button>
+          <div className="text-center">
+            <span className="text-xs uppercase font-extrabold tracking-widest block opacity-60">Cronograma Ativo</span>
+            <h2 className="text-base font-black" style={{ color: priceColor }}>{monthNames[month]} / {year}</h2>
+          </div>
+          <button onClick={handleNextMonth} className="bg-black/40 hover:bg-black/60 text-xs font-extrabold px-4 py-2 rounded-xl transition border border-white/10">
+            Próximo Mês ▶
+          </button>
+        </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {clients.map(c => (
-                <div key={c.id} className="border border-white/10 p-5 rounded-3xl space-y-4 shadow-xl transition hover:border-white/20" style={{ backgroundColor: cardBgColor }}>
-                  <div className="flex items-center space-x-3">
-                    <img src={c.logo_url || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=100&auto=format&fit=crop&q=80'} alt={c.name} className="w-12 h-12 rounded-2xl object-cover bg-gray-800 border border-white/10" />
-                    <div className="overflow-hidden">
-                      <h3 className="font-extrabold text-sm truncate">{c.name}</h3>
-                      <p className="text-xs opacity-60 truncate">{c.company_name || 'Sem Razão Social'}</p>
+        {/* TAB 1: CLIENTES & CRONOGRAMA DO MÊS */}
+        {activeTab === 'clientes' && (
+          <div className="space-y-6">
+            <h2 className="text-sm font-bold opacity-80">Clientes & Produção de {monthNames[month]} ({clients.length})</h2>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {clients.map(c => {
+                const clientMonthPosts = selectedMonthPosts.filter(p => p.client_id === c.id);
+                return (
+                  <div key={c.id} className="border border-white/10 p-5 rounded-3xl space-y-4 shadow-xl" style={{ backgroundColor: cardBgColor }}>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-3">
+                        <img src={c.logo_url || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=100&auto=format&fit=crop&q=80'} alt={c.name} className="w-12 h-12 rounded-2xl object-cover bg-gray-800 border border-white/10" />
+                        <div>
+                          <h3 className="font-extrabold text-sm">{c.name}</h3>
+                          <p className="text-xs opacity-60">{c.company_name || 'Sem Razão Social'}</p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => {
+                          const link = `${window.location.origin}/portal/${c.access_token}`;
+                          navigator.clipboard.writeText(link);
+                          alert("Link do Portal do Cliente copiado!");
+                        }}
+                        className="text-[11px] font-bold px-3 py-1.5 rounded-xl border border-white/10 hover:bg-white/5 transition"
+                        style={{ color: priceColor }}>
+                        🔗 Copiar Portal
+                      </button>
+                    </div>
+
+                    {/* CRONOGRAMA MENSAL DO CLIENTE */}
+                    <div className="bg-black/40 border border-white/5 rounded-2xl p-4 space-y-2">
+                      <div className="flex justify-between items-center text-xs border-b border-white/10 pb-2">
+                        <span className="font-bold opacity-80">📌 Cronograma {monthNames[month]}</span>
+                        <span className="font-black text-xs" style={{ color: priceColor }}>{clientMonthPosts.length} Conteúdos</span>
+                      </div>
+
+                      {clientMonthPosts.length === 0 ? (
+                        <p className="text-xs opacity-40 text-center py-4">Nenhum post agendado para {monthNames[month]}.</p>
+                      ) : (
+                        <div className="space-y-2 max-h-48 overflow-y-auto pt-1">
+                          {clientMonthPosts.map(p => (
+                            <div key={p.id} onClick={() => setSelectedPostDetail(p)} className="bg-gray-900/80 p-2.5 rounded-xl flex justify-between items-center text-xs border border-white/5 cursor-pointer hover:border-white/20 transition">
+                              <div className="truncate max-w-[200px]">
+                                <span className="font-bold block truncate">{p.title}</span>
+                                <span className="text-[10px] opacity-60">📅 {new Date(p.scheduled_date + 'T00:00:00').toLocaleDateString('pt-BR')} às {p.scheduled_time}</span>
+                              </div>
+                              <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full uppercase ${p.status === 'aprovado' ? 'bg-green-500/20 text-green-400' : p.status === 'ajustes_solicitados' ? 'bg-red-500/20 text-red-400' : 'bg-yellow-500/20 text-yellow-400'}`}>
+                                {p.status.replace('_', ' ')}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* TAB 2: CONTRATOS & SERVIÇOS INCLUSOS */}
+        {activeTab === 'contratos' && (
+          <div className="space-y-4">
+            <h2 className="text-sm font-bold opacity-80">Contratos Ativos & Detalhes do Pack</h2>
+            <div className="space-y-4">
+              {contracts.map(cont => (
+                <div key={cont.id} className="border border-white/10 p-6 rounded-3xl space-y-4 shadow-xl" style={{ backgroundColor: cardBgColor }}>
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-white/10 pb-3">
+                    <div>
+                      <span className="text-xs font-black uppercase tracking-wider block" style={{ color: priceColor }}>{cont.agency_clients?.name}</span>
+                      <h3 className="font-extrabold text-lg mt-0.5">{cont.contract_name}</h3>
+                      <p className="text-xs opacity-60">Início: {new Date(cont.start_date + 'T00:00:00').toLocaleDateString('pt-BR')} • Duração: {cont.duration_months}m</p>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-xs opacity-60 block">Valor Mensal</span>
+                      <span className="text-xl font-black text-green-400">R$ {Number(cont.installment_value).toFixed(2)}</span>
                     </div>
                   </div>
 
-                  <div className="text-xs opacity-80 space-y-1.5 bg-black/40 p-3 rounded-2xl border border-white/5 font-mono">
-                    <p>💬 Zap: <b style={{ color: priceColor }}>{c.whatsapp || 'Não informado'}</b></p>
-                    <p>📧 Email: <b>{c.email || 'Não informado'}</b></p>
-                  </div>
-
-                  <button
-                    onClick={() => {
-                      const link = `${window.location.origin}/portal/${c.access_token}`;
-                      navigator.clipboard.writeText(link);
-                      alert("Link único do Portal do Cliente copiado!");
-                    }}
-                    className="w-full text-xs font-bold py-2.5 rounded-xl transition border border-white/10 hover:bg-white/5"
-                    style={{ color: priceColor }}>
-                    🔗 Copiar Link do Portal
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* TAB 2: CONTRATOS */}
-        {activeTab === 'contratos' && (
-          <div className="space-y-4">
-            <h2 className="text-sm font-bold opacity-80">Contratos Ativos</h2>
-            <div className="space-y-3">
-              {contracts.map(cont => (
-                <div key={cont.id} className="border border-white/10 p-5 rounded-3xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 shadow-xl" style={{ backgroundColor: cardBgColor }}>
-                  <div>
-                    <span className="text-xs font-black uppercase tracking-wider block" style={{ color: priceColor }}>{cont.agency_clients?.name}</span>
-                    <h3 className="font-extrabold text-base mt-0.5">{cont.contract_name}</h3>
-                    <p className="text-xs opacity-60 mt-1">
-                      Início: {new Date(cont.start_date + 'T00:00:00').toLocaleDateString('pt-BR')} • Duração: {cont.duration_months}m • Frequência: <b className="uppercase">{cont.payment_frequency}</b>
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-xs opacity-60 block">Valor da Parcela</span>
-                    <span className="text-xl font-black text-green-400">R$ {Number(cont.installment_value).toFixed(2)}</span>
+                  {/* LISTA DE SERVIÇOS INCLUSOS */}
+                  <div className="bg-black/30 border border-white/5 p-4 rounded-2xl space-y-2">
+                    <span className="text-xs font-bold opacity-80 block">🎁 Serviços & Entregáveis do Pack:</span>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                      {cont.included_services?.split(',').map((serv, idx) => (
+                        <div key={idx} className="flex items-center space-x-2 bg-white/5 p-2 rounded-xl border border-white/5">
+                          <span className="text-green-400 font-bold">✓</span>
+                          <span>{serv.trim()}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
               ))}
@@ -330,11 +432,22 @@ export default function DashboardAgencia() {
           </div>
         )}
 
-        {/* TAB 3: FINANCEIRO & DRE */}
+        {/* TAB 3: FINANCEIRO & DRE COM BAIXA MANUAL E ALERTAS */}
         {activeTab === 'financeiro' && (
           <div className="space-y-6">
             
-            {/* CARDS RESUMO DRE */}
+            {/* ALERTAS DE VENCIMENTO */}
+            {upcomingInvoices.length > 0 && (
+              <div className="bg-yellow-500/10 border border-yellow-500/30 p-4 rounded-3xl flex items-center space-x-3">
+                <span className="text-2xl animate-bounce">⚠️</span>
+                <div>
+                  <h3 className="font-extrabold text-xs text-yellow-400">{upcomingInvoices.length} fatura(s) a vencer nos próximos 3 dias!</h3>
+                  <p className="text-[11px] opacity-80">{upcomingInvoices.map(i => `${i.agency_clients?.name} (R$ ${i.amount})`).join(', ')}</p>
+                </div>
+              </div>
+            )}
+
+            {/* RESUMO DRE */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="border border-white/10 p-5 rounded-3xl space-y-1 shadow-xl" style={{ backgroundColor: cardBgColor }}>
                 <span className="text-xs font-bold opacity-60 block">🟢 Recebido (Pago)</span>
@@ -354,9 +467,9 @@ export default function DashboardAgencia() {
               </div>
             </div>
 
-            {/* TABELA DE FATURAS */}
+            {/* TABELA DE FATURAS COM BAIXA MANUAL */}
             <div className="border border-white/10 rounded-3xl p-6 space-y-4 shadow-xl" style={{ backgroundColor: cardBgColor }}>
-              <h3 className="font-extrabold text-sm">Faturas de Clientes</h3>
+              <h3 className="font-extrabold text-sm">Faturas e Controle de Baixa</h3>
               <div className="space-y-2.5 max-h-96 overflow-y-auto">
                 {invoices.map(inv => (
                   <div key={inv.id} className="bg-black/30 border border-white/5 p-3.5 rounded-2xl flex justify-between items-center text-xs">
@@ -372,8 +485,13 @@ export default function DashboardAgencia() {
                       </span>
 
                       {inv.status !== 'pago' && (
-                        <button onClick={() => sendWhatsAppReminder(inv)} className="bg-green-600 hover:bg-green-700 text-white font-bold px-3 py-1.5 rounded-xl text-[10px] transition">
-                          💬 Cobrar
+                        <button
+                          onClick={() => {
+                            setSelectedInvoice(inv);
+                            setPaymentAmount(inv.amount);
+                          }}
+                          className="bg-green-600 hover:bg-green-700 text-white font-extrabold px-3 py-1.5 rounded-xl text-[10px] transition">
+                          💵 Dar Baixa
                         </button>
                       )}
                     </div>
@@ -381,55 +499,106 @@ export default function DashboardAgencia() {
                 ))}
               </div>
             </div>
-
-            {/* DESPESAS */}
-            <div className="border border-white/10 rounded-3xl p-6 space-y-4 shadow-xl" style={{ backgroundColor: cardBgColor }}>
-              <div className="flex justify-between items-center">
-                <h3 className="font-extrabold text-sm">Despesas & Custos da Agência</h3>
-                <button onClick={() => setShowExpenseModal(true)} className="bg-red-600 hover:bg-red-700 text-white text-xs font-extrabold px-3 py-1.5 rounded-xl transition">+ Nova Despesa</button>
-              </div>
-
-              <div className="space-y-2 max-h-80 overflow-y-auto">
-                {expenses.map(exp => (
-                  <div key={exp.id} className="bg-black/30 border border-white/5 p-3.5 rounded-2xl flex justify-between items-center text-xs">
-                    <div>
-                      <span className="font-bold block">{exp.description}</span>
-                      <p className="opacity-60 mt-0.5">Vencimento: {new Date(exp.due_date + 'T00:00:00').toLocaleDateString('pt-BR')} • Categoria: {exp.category}</p>
-                    </div>
-                    <span className="font-black text-red-400 text-sm">R$ {Number(exp.amount).toFixed(2)}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
           </div>
         )}
 
-        {/* TAB 4: POSTS */}
+        {/* TAB 4: CALENDÁRIO MENSAL EM GRADE REAL */}
         {activeTab === 'posts' && (
           <div className="space-y-4">
-            <h2 className="text-sm font-bold opacity-80">Cronograma de Posts ({posts.length})</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              {posts.map(p => (
-                <div key={p.id} className="border border-white/10 rounded-3xl p-4 space-y-3 shadow-xl" style={{ backgroundColor: cardBgColor }}>
-                  <div className="h-40 rounded-2xl overflow-hidden bg-gray-800">
-                    <img src={p.media_url || 'https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=400&auto=format&fit=crop&q=80'} alt={p.title} className="w-full h-full object-cover" />
-                  </div>
-                  <span className="text-[10px] font-black uppercase block" style={{ color: priceColor }}>{p.agency_clients?.name}</span>
-                  <h3 className="font-bold text-xs">{p.title}</h3>
-                  <p className="text-[10px] opacity-60">📅 {new Date(p.scheduled_date + 'T00:00:00').toLocaleDateString('pt-BR')}</p>
-                  <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-black/40 text-gray-300 border border-white/10 block text-center uppercase">
-                    {p.status.replace('_', ' ')}
-                  </span>
-                </div>
-              ))}
+            <h2 className="text-sm font-bold opacity-80">Calendário de Conteúdos - {monthNames[month]} / {year}</h2>
+
+            <div className="border border-white/10 rounded-3xl p-4 shadow-xl overflow-x-auto" style={{ backgroundColor: cardBgColor }}>
+              {/* DIAS DA SEMANA */}
+              <div className="grid grid-cols-7 gap-1 text-center font-extrabold text-xs mb-2 py-2 border-b border-white/10" style={{ color: priceColor }}>
+                <div>DOM</div><div>SEG</div><div>TER</div><div>QUA</div><div>QUI</div><div>SEX</div><div>SÁB</div>
+              </div>
+
+              {/* GRADE DO MÊS */}
+              <div className="grid grid-cols-7 gap-1">
+                {/* ESPAÇOS EM BRANCO ATÉ O PRIMEIRA DIA */}
+                {Array.from({ length: firstDayIndex }).map((_, i) => (
+                  <div key={`empty-${i}`} className="h-28 bg-black/20 rounded-2xl opacity-20"></div>
+                ))}
+
+                {/* DIAS DO MÊS */}
+                {Array.from({ length: daysInMonth }).map((_, idx) => {
+                  const dayNum = idx + 1;
+                  const dayDateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
+                  const dayPosts = posts.filter(p => p.scheduled_date === dayDateStr);
+
+                  return (
+                    <div key={`day-${dayNum}`} className="h-28 bg-black/40 border border-white/5 rounded-2xl p-1.5 space-y-1 overflow-hidden hover:border-white/20 transition">
+                      <span className="text-[10px] font-bold opacity-60 block">{dayNum}</span>
+                      <div className="space-y-1 overflow-y-auto max-h-20">
+                        {dayPosts.map(p => (
+                          <div
+                            key={p.id}
+                            onClick={() => setSelectedPostDetail(p)}
+                            className={`p-1 rounded-lg text-[9px] font-bold truncate cursor-pointer transition ${
+                              p.status === 'aprovado' ? 'bg-green-600/30 text-green-300 border border-green-500/40' :
+                              p.status === 'ajustes_solicitados' ? 'bg-red-600/30 text-red-300 border border-red-500/40' :
+                              'bg-yellow-600/30 text-yellow-300 border border-yellow-500/40'
+                            }`}>
+                            {p.title}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
         )}
 
       </main>
 
-      {/* MODAL NOVO CLIENTE */}
+      {/* MODAL DE BAIXA MANUAL FINANCEIRA */}
+      {selectedInvoice && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <form onSubmit={handleConfirmPayment} className="border border-white/10 w-full max-w-sm rounded-3xl p-6 space-y-4 shadow-2xl" style={{ backgroundColor: cardBgColor }}>
+            <h3 className="font-extrabold text-sm text-green-400">💵 Confirmar Pagamento Manual</h3>
+            <p className="text-xs opacity-80">Cliente: <b>{selectedInvoice.agency_clients?.name}</b></p>
+            <div>
+              <label className="text-[10px] opacity-60 block mb-1">Valor do Pagamento (R$):</label>
+              <input
+                type="number"
+                step="0.01"
+                required
+                value={paymentAmount}
+                onChange={e => setPaymentAmount(e.target.value)}
+                className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-sm font-bold text-green-400 focus:outline-none"
+              />
+            </div>
+            <div className="flex space-x-2">
+              <button type="button" onClick={() => setSelectedInvoice(null)} className="w-1/2 bg-gray-800 text-xs font-bold py-3 rounded-xl">Cancelar</button>
+              <button type="submit" className="w-1/2 bg-green-600 hover:bg-green-700 text-white text-xs font-extrabold py-3 rounded-xl shadow-lg">Confirmar Baixa</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* MODAL DETALHES DO POST */}
+      {selectedPostDetail && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div className="border border-white/10 w-full max-w-md rounded-3xl p-6 space-y-4 shadow-2xl" style={{ backgroundColor: cardBgColor }}>
+            <div className="flex justify-between items-center border-b border-white/10 pb-2">
+              <h3 className="font-extrabold text-sm" style={{ color: priceColor }}>{selectedPostDetail.title}</h3>
+              <button onClick={() => setSelectedPostDetail(null)} className="text-xs font-bold opacity-60 hover:opacity-100">✕ Fechar</button>
+            </div>
+            <div className="h-48 rounded-2xl overflow-hidden bg-gray-800">
+              <img src={selectedPostDetail.media_url || 'https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=400&auto=format&fit=crop&q=80'} alt="Mídia" className="w-full h-full object-cover" />
+            </div>
+            <div className="text-xs space-y-2 bg-black/30 p-3 rounded-2xl border border-white/5">
+              <p>📅 Data: <b>{new Date(selectedPostDetail.scheduled_date + 'T00:00:00').toLocaleDateString('pt-BR')} às {selectedPostDetail.scheduled_time}</b></p>
+              <p>📝 Legenda: <span className="opacity-80 block mt-1">{selectedPostDetail.copy_text || 'Sem legenda cadastrada.'}</span></p>
+              <p>🏷️ Hashtags: <span className="text-blue-400">{selectedPostDetail.hashtags}</span></p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAIS (NOVO CLIENTE, NOVO CONTRATO, NOVO POST, NOVA DESPESA) */}
       {showClientModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
           <form onSubmit={handleSaveClient} className="border border-white/10 w-full max-w-md rounded-3xl p-6 space-y-3 shadow-2xl" style={{ backgroundColor: cardBgColor }}>
@@ -447,16 +616,16 @@ export default function DashboardAgencia() {
         </div>
       )}
 
-      {/* MODAL NOVO CONTRATO */}
       {showContractModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
           <form onSubmit={handleSaveContract} className="border border-white/10 w-full max-w-md rounded-3xl p-6 space-y-3 shadow-2xl" style={{ backgroundColor: cardBgColor }}>
-            <h3 className="font-extrabold text-sm text-purple-400">Novo Contrato (Gera Faturas)</h3>
+            <h3 className="font-extrabold text-sm text-purple-400">Novo Contrato e Entregáveis do Pack</h3>
             <select required value={contractForm.client_id} onChange={e => setContractForm({ ...contractForm, client_id: e.target.value })} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white font-bold">
               <option value="">Selecione o Cliente...</option>
               {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
             <input type="text" required placeholder="Nome do Pacote (ex: Pack Bronze)" value={contractForm.contract_name} onChange={e => setContractForm({ ...contractForm, contract_name: e.target.value })} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white" />
+            <textarea placeholder="Serviços inclusos (separados por vírgula)" rows={3} value={contractForm.included_services} onChange={e => setContractForm({ ...contractForm, included_services: e.target.value })} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white" />
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="text-[10px] opacity-60 block mb-1">Valor Mensal (R$):</label>
@@ -467,24 +636,6 @@ export default function DashboardAgencia() {
                 <input type="number" required value={contractForm.duration_months} onChange={e => setContractForm({ ...contractForm, duration_months: e.target.value })} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white font-bold" />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-[10px] opacity-60 block mb-1">Frequência Pagamento:</label>
-                <select value={contractForm.payment_frequency} onChange={e => setContractForm({ ...contractForm, payment_frequency: e.target.value })} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white font-bold">
-                  <option value="semanal">Semanal</option>
-                  <option value="quinzenal">Quinzenal</option>
-                  <option value="mensal">Mensal</option>
-                </select>
-              </div>
-              <div>
-                <label className="text-[10px] opacity-60 block mb-1">Valor por Parcela (R$):</label>
-                <input type="number" required value={contractForm.installment_value} onChange={e => setContractForm({ ...contractForm, installment_value: e.target.value })} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-green-400 font-bold" />
-              </div>
-            </div>
-            <div>
-              <label className="text-[10px] opacity-60 block mb-1">Data de Início:</label>
-              <input type="date" required value={contractForm.start_date} onChange={e => setContractForm({ ...contractForm, start_date: e.target.value })} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white" />
-            </div>
             <div className="flex space-x-2 pt-2">
               <button type="button" onClick={() => setShowContractModal(false)} className="w-1/2 bg-gray-800 text-xs font-bold py-3 rounded-xl">Cancelar</button>
               <button type="submit" className="w-1/2 bg-purple-600 text-xs font-extrabold py-3 rounded-xl shadow-lg">Gerar Contrato</button>
@@ -493,7 +644,6 @@ export default function DashboardAgencia() {
         </div>
       )}
 
-      {/* MODAL NOVO POST */}
       {showPostModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
           <form onSubmit={handleSavePost} className="border border-white/10 w-full max-w-md rounded-3xl p-6 space-y-3 shadow-2xl" style={{ backgroundColor: cardBgColor }}>
@@ -505,7 +655,6 @@ export default function DashboardAgencia() {
             <input type="text" required placeholder="Título do Post / Tema" value={postForm.title} onChange={e => setPostForm({ ...postForm, title: e.target.value })} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white" />
             <input type="url" placeholder="URL da Mídia (Canva, Drive)" value={postForm.media_url} onChange={e => setPostForm({ ...postForm, media_url: e.target.value })} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white" />
             <textarea placeholder="Texto da Legenda / Copy" rows={3} value={postForm.copy_text} onChange={e => setPostForm({ ...postForm, copy_text: e.target.value })} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white" />
-            <input type="text" placeholder="Hashtags" value={postForm.hashtags} onChange={e => setPostForm({ ...postForm, hashtags: e.target.value })} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white" />
             <div className="grid grid-cols-2 gap-2">
               <input type="date" required value={postForm.scheduled_date} onChange={e => setPostForm({ ...postForm, scheduled_date: e.target.value })} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white" />
               <input type="time" required value={postForm.scheduled_time} onChange={e => setPostForm({ ...postForm, scheduled_time: e.target.value })} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white" />
@@ -518,20 +667,13 @@ export default function DashboardAgencia() {
         </div>
       )}
 
-      {/* MODAL NOVA DESPESA */}
       {showExpenseModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
           <form onSubmit={handleSaveExpense} className="border border-white/10 w-full max-w-md rounded-3xl p-6 space-y-3 shadow-2xl" style={{ backgroundColor: cardBgColor }}>
             <h3 className="font-extrabold text-sm text-red-400">Cadastrar Contas a Pagar / Equipe</h3>
-            <input type="text" required placeholder="Descrição (ex: Assinatura Adobe, Salário Designer)" value={expenseForm.description} onChange={e => setExpenseForm({ ...expenseForm, description: e.target.value })} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white" />
+            <input type="text" required placeholder="Descrição" value={expenseForm.description} onChange={e => setExpenseForm({ ...expenseForm, description: e.target.value })} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white" />
             <input type="number" required placeholder="Valor (R$)" value={expenseForm.amount} onChange={e => setExpenseForm({ ...expenseForm, amount: e.target.value })} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-red-400 font-bold" />
             <input type="date" required value={expenseForm.due_date} onChange={e => setExpenseForm({ ...expenseForm, due_date: e.target.value })} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white" />
-            <select value={expenseForm.category} onChange={e => setExpenseForm({ ...expenseForm, category: e.target.value })} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white font-bold">
-              <option value="custo_fixo">Custo Fixo</option>
-              <option value="salario_equipe">Salário / Equipe</option>
-              <option value="ferramenta">Ferramenta / Software</option>
-              <option value="imposto">Imposto</option>
-            </select>
             <div className="flex space-x-2 pt-2">
               <button type="button" onClick={() => setShowExpenseModal(false)} className="w-1/2 bg-gray-800 text-xs font-bold py-3 rounded-xl">Cancelar</button>
               <button type="submit" className="w-1/2 bg-red-600 text-xs font-extrabold py-3 rounded-xl shadow-lg">Salvar Despesa</button>
