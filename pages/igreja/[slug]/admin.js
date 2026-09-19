@@ -13,6 +13,9 @@ export default function ChurchAdmin() {
   const [tenant, setTenant] = useState(null);
   const [events, setEvents] = useState([]);
 
+  // CAMPO DO INSTAGRAM
+  const [instagramUrl, setInstagramUrl] = useState('');
+
   // FORMULÁRIO NOVO EVENTO
   const [showModal, setShowModal] = useState(false);
   const [eventForm, setEventForm] = useState({
@@ -43,6 +46,7 @@ export default function ChurchAdmin() {
         return;
       }
       setTenant(tData);
+      setInstagramUrl(tData.instagram_url || '');
 
       const { data: eData } = await supabase
         .from('church_events')
@@ -64,6 +68,19 @@ export default function ChurchAdmin() {
       setIsAuthenticated(true);
     } else {
       alert("Senha de líder incorreta!");
+    }
+  };
+
+  const handleSaveInstagram = async () => {
+    const { error } = await supabase
+      .from('tenants')
+      .update({ instagram_url: instagramUrl })
+      .eq('id', tenant.id);
+
+    if (error) {
+      alert("Erro ao salvar Instagram: " + error.message);
+    } else {
+      alert("Instagram da igreja atualizado com sucesso!");
     }
   };
 
@@ -139,7 +156,7 @@ export default function ChurchAdmin() {
       <header className="border border-slate-800 bg-slate-900 p-6 rounded-3xl flex justify-between items-center flex-wrap gap-4 shadow-xl">
         <div>
           <h1 className="text-xl font-black text-white">{tenant.name}</h1>
-          <p className="text-xs font-bold text-amber-400">Gestão de Cultos, Eventos & Encartes</p>
+          <p className="text-xs font-bold text-amber-400">Gestão de Cultos, Eventos & Redes Sociais</p>
         </div>
 
         <div className="flex space-x-2">
@@ -151,6 +168,27 @@ export default function ChurchAdmin() {
           </a>
         </div>
       </header>
+
+      {/* CONFIGURAÇÃO DO INSTAGRAM DA IGREJA */}
+      <div className="border border-slate-800 bg-slate-900 rounded-3xl p-6 space-y-3 shadow-xl">
+        <h2 className="text-sm font-extrabold text-slate-200">📸 Configuração do Instagram da Igreja</h2>
+        <p className="text-xs text-slate-400">Insira o link ou usuário do Instagram para aparecer no rodapé da agenda pública.</p>
+
+        <div className="flex flex-col sm:flex-row gap-2">
+          <input 
+            type="text" 
+            placeholder="Ex: https://instagram.com/suaigreja ou @suaigreja"
+            value={instagramUrl}
+            onChange={(e) => setInstagramUrl(e.target.value)}
+            className="w-full bg-slate-950 border border-slate-800 p-3 rounded-xl text-xs text-white focus:outline-none focus:border-amber-500"
+          />
+          <button 
+            onClick={handleSaveInstagram}
+            className="bg-purple-600 hover:bg-purple-700 text-white font-extrabold px-5 py-3 sm:py-0 rounded-xl text-xs transition whitespace-nowrap shadow-lg shadow-purple-600/20">
+            💾 Salvar Instagram
+          </button>
+        </div>
+      </div>
 
       {/* LISTA DE EVENTOS GERENCIÁVEIS */}
       <div className="border border-slate-800 bg-slate-900 rounded-3xl p-6 space-y-4 shadow-xl">
