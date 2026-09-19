@@ -12,6 +12,7 @@ export default function DashboardAgencia() {
 
   // DATA DE NAVEGAÇÃO DO CALENDÁRIO / CRONOGRAMA
   const [currentDate, setCurrentDate] = useState(new Date());
+  const [selectedClientFilter, setSelectedClientFilter] = useState('ALL'); // FILTRO POR CLIENTE NO CALENDÁRIO
 
   // DADOS DO BANCO
   const [clients, setClients] = useState([]);
@@ -19,8 +20,9 @@ export default function DashboardAgencia() {
   const [invoices, setInvoices] = useState([]);
   const [expenses, setExpenses] = useState([]);
   const [posts, setPosts] = useState([]);
+  const [metrics, setMetrics] = useState([]);
 
-  // MODAIS
+  // MODAIS DE CADASTRO
   const [showClientModal, setShowClientModal] = useState(false);
   const [clientForm, setClientForm] = useState({ name: '', company_name: '', whatsapp: '', email: '', logo_url: '' });
 
@@ -50,6 +52,18 @@ export default function DashboardAgencia() {
     hashtags: '#agencia #socialmedia'
   });
 
+  // MODAL DE CADASTRO DE MÉTRICAS REAIS DO INSTAGRAM
+  const [showMetricsModal, setShowMetricsModal] = useState(false);
+  const [metricsForm, setMetricsForm] = useState({
+    client_id: '',
+    month_year: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`,
+    reach: '48200',
+    engagement: '3850',
+    followers_gained: '412',
+    ad_impressions: '112500',
+    growth_percentage: '+14%'
+  });
+
   // MODAL DE BAIXA FINANCEIRA MANUAL
   const [selectedInvoice, setSelectedInvoice] = useState(null);
   const [paymentAmount, setPaymentAmount] = useState('');
@@ -75,12 +89,13 @@ export default function DashboardAgencia() {
       }
       setTenant(tData);
 
-      const [cRes, contRes, invRes, expRes, pRes] = await Promise.all([
+      const [cRes, contRes, invRes, expRes, pRes, mRes] = await Promise.all([
         supabase.from('agency_clients').select('*').eq('tenant_id', tData.id).order('name'),
         supabase.from('agency_contracts').select('*, agency_clients(name)').eq('tenant_id', tData.id).order('id', { ascending: false }),
         supabase.from('agency_invoices').select('*, agency_clients(name)').eq('tenant_id', tData.id).order('due_date', { ascending: true }),
         supabase.from('agency_expenses').select('*').eq('tenant_id', tData.id).order('due_date', { ascending: true }),
-        supabase.from('agency_posts').select('*, agency_clients(name)').eq('tenant_id', tData.id).order('scheduled_date', { ascending: true })
+        supabase.from('agency_posts').select('*, agency_clients(name)').eq('tenant_id', tData.id).order('scheduled_date', { ascending: true }),
+        supabase.from('agency_metrics').select('*, agency_clients(name)').eq('tenant_id', tData.id).order('month_year', { ascending: false })
       ]);
 
       if (cRes.data) setClients(cRes.data);
@@ -88,6 +103,7 @@ export default function DashboardAgencia() {
       if (invRes.data) setInvoices(invRes.data);
       if (expRes.data) setExpenses(expRes.data);
       if (pRes.data) setPosts(pRes.data);
+      if (mRes.data) setMetrics(mRes.data);
 
     } catch (e) {
       console.error("Erro ao carregar dados:", e);
@@ -95,6 +111,21 @@ export default function DashboardAgencia() {
       setLoading(false);
     }
   };
+
+  // RECALCULAR PARCELA QUANDO MUDAR VALOR MENSAL OU FREQUÊNCIA
+  useEffect(() => {
+    const monthly = Number(contractForm.total_monthly_value) || 0;
+    const freq = contractForm.payment_frequency;
+    let div = 1;
+
+    if (freq === 'semanal') div = 4;
+    if (freq === 'quinzenal') div = 2;
+
+    setContractForm(prev => ({
+      ...prev,
+      installment_value: (monthly / div).toFixed(2)
+    }));
+  }, [contractForm.total_monthly_value, contractForm.payment_frequency]);
 
   const handleSaveClient = async (e) => {
     e.preventDefault();
@@ -171,7 +202,7 @@ export default function DashboardAgencia() {
     await supabase.from('agency_invoices').insert(generatedInvoices);
     fetchAgenciaData();
     setShowContractModal(false);
-    alert(`Contrato criado e ${generatedInvoices.length} parcelas geradas!`);
+    alert(`Contrato criado e ${generatedInvoices.length} parcelas geradas com sucesso!`);
   };
 
   const handleSaveExpense = async (e) => {
@@ -206,6 +237,23 @@ export default function DashboardAgencia() {
     setPostForm({ client_id: '', title: '', scheduled_date: new Date().toISOString().substring(0, 10), scheduled_time: '18:00', media_url: '', copy_text: '', hashtags: '#agencia' });
   };
 
+  const handleSaveMetrics = async (e) => {
+    e.preventDefault();
+    if (!metricsForm.client_id) return alert("Selecione um cliente.");
+
+    const { data, error } = await supabase
+      .from('agency_metrics')
+      .insert([{ ...metricsForm, tenant_id: tenant.id }])
+      .select('*, agency_clients(name)')
+      .single();
+
+    if (error) return alert("Erro ao salvar métricas: " + error.message);
+
+    setMetrics([data, ...metrics]);
+    setShowMetricsModal(false);
+    alert("Métricas mensais salvas e atualizadas no Portal do Cliente!");
+  };
+
   // BAIXA MANUAL DE FATURA
   const handleConfirmPayment = async (e) => {
     e.preventDefault();
@@ -227,10 +275,36 @@ export default function DashboardAgencia() {
     setInvoices(invoices.map(inv => inv.id === selectedInvoice.id ? { ...inv, status: 'pago', amount: paidVal } : inv));
     setSelectedInvoice(null);
     setPaymentAmount('');
-    alert("Pagamento registrado com sucesso e financeiro recalculado!");
+    alert("Pagamento registrado e recalculado no DRE!");
   };
 
-  // AUXILIARES DE NAVEGAÇÃO DE MÊS
+  // DADOS E AÇÕES DE DELETAR (LIMPEZA DO SISTEMA)
+  const handleDeleteClient = async (id, name) => {
+    if (!confirm(`Deseja apagar o cliente "${name}" e todos os seus dados?`)) return;
+    await supabase.from('agency_clients').delete().eq('id', id);
+    setClients(clients.filter(c => c.id !== id));
+  };
+
+  const handleDeleteContract = async (id) => {
+    if (!confirm("Deseja cancelar/excluir este contrato?")) return;
+    await supabase.from('agency_contracts').delete().eq('id', id);
+    setContracts(contracts.filter(c => c.id !== id));
+  };
+
+  const handleDeletePost = async (id) => {
+    if (!confirm("Deseja apagar este post?")) return;
+    await supabase.from('agency_posts').delete().eq('id', id);
+    setPosts(posts.filter(p => p.id !== id));
+    if (selectedPostDetail?.id === id) setSelectedPostDetail(null);
+  };
+
+  const handleDeleteExpense = async (id) => {
+    if (!confirm("Deseja apagar esta despesa?")) return;
+    await supabase.from('agency_expenses').delete().eq('id', id);
+    setExpenses(expenses.filter(e => e.id !== id));
+  };
+
+  // NAVEGAÇÃO DE MÊS
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
 
@@ -239,14 +313,15 @@ export default function DashboardAgencia() {
 
   const monthNames = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 
-  // FILTRAR POSTS PELO MÊS SELECIONADO
-  const selectedMonthPosts = posts.filter(p => {
+  // POSTS FILTRADOS POR MÊS E CLIENTE
+  const filteredPosts = posts.filter(p => {
     if (!p.scheduled_date) return false;
     const d = new Date(p.scheduled_date + 'T00:00:00');
-    return d.getFullYear() === year && d.getMonth() === month;
+    const matchesMonth = d.getFullYear() === year && d.getMonth() === month;
+    const matchesClient = selectedClientFilter === 'ALL' || String(p.client_id) === String(selectedClientFilter);
+    return matchesMonth && matchesClient;
   });
 
-  // LÓGICA DO CALENDÁRIO EM GRADE
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const firstDayIndex = new Date(year, month, 1).getDay();
 
@@ -260,19 +335,11 @@ export default function DashboardAgencia() {
   const textColor = tenant.text_color || '#FFFFFF';
   const priceColor = tenant.price_color || '#FF8C00';
 
-  // FINANCEIRO / DRE
+  // DRE CALCULADO
   const totalReceitasPagas = invoices.filter(i => i.status === 'pago').reduce((a, b) => a + Number(b.amount), 0);
   const totalReceitasPendentes = invoices.filter(i => i.status === 'pendente').reduce((a, b) => a + Number(b.amount), 0);
   const totalDespesas = expenses.reduce((a, b) => a + Number(b.amount), 0);
   const lucroProjetado = (totalReceitasPagas + totalReceitasPendentes) - totalDespesas;
-
-  // FATURAS COM VENCIMENTO PRÓXIMO (3 DIAS)
-  const todayStr = new Date().toISOString().substring(0, 10);
-  const upcomingInvoices = invoices.filter(inv => {
-    if (inv.status === 'pago') return false;
-    const diff = (new Date(inv.due_date + 'T00:00:00') - new Date(todayStr + 'T00:00:00')) / (1000 * 60 * 60 * 24);
-    return diff >= 0 && diff <= 3;
-  });
 
   return (
     <div className="min-h-screen font-sans pb-20 transition-colors" style={{ backgroundColor: secondaryColor, color: textColor }}>
@@ -292,13 +359,14 @@ export default function DashboardAgencia() {
             <button onClick={() => setShowClientModal(true)} className="text-xs font-extrabold px-3.5 py-2.5 rounded-xl transition shadow-md hover:opacity-90" style={{ backgroundColor: primaryColor, color: buttonTextColor }}>+ Novo Cliente</button>
             <button onClick={() => setShowContractModal(true)} className="bg-purple-600 hover:bg-purple-700 text-white text-xs font-extrabold px-3.5 py-2.5 rounded-xl transition shadow-md">+ Novo Contrato</button>
             <button onClick={() => setShowPostModal(true)} className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-extrabold px-3.5 py-2.5 rounded-xl transition shadow-md">+ Agendar Post</button>
+            <button onClick={() => setShowMetricsModal(true)} className="bg-pink-600 hover:bg-pink-700 text-white text-xs font-extrabold px-3.5 py-2.5 rounded-xl transition shadow-md">+ Lançar Métricas</button>
           </div>
         </div>
 
         {/* NAVEGAÇÃO DE ABAS */}
         <div className="max-w-7xl mx-auto px-4 flex space-x-2 border-t border-white/5 pt-2 overflow-x-auto">
           {[
-            { id: 'clientes', label: '👥 Clientes & Cronogramas' },
+            { id: 'clientes', label: '👥 Clientes & Produção' },
             { id: 'contratos', label: '📄 Contratos & Packs' },
             { id: 'financeiro', label: '💰 Financeiro & DRE' },
             { id: 'posts', label: '📅 Calendário Mensal' }
@@ -316,31 +384,35 @@ export default function DashboardAgencia() {
         </div>
       </header>
 
-      {/* CONTEÚDO PRINCIPAL */}
       <main className="max-w-7xl mx-auto px-4 pt-6 space-y-6">
 
-        {/* CONTROLE DE MÊS / CRONOGRAMA */}
+        {/* NAVEGAÇÃO DE MÊS */}
         <div className="border border-white/10 p-4 rounded-3xl flex justify-between items-center shadow-xl" style={{ backgroundColor: cardBgColor }}>
-          <button onClick={handlePrevMonth} className="bg-black/40 hover:bg-black/60 text-xs font-extrabold px-4 py-2 rounded-xl transition border border-white/10">
+          <button onClick={handlePrevMonth} className="bg-black/40 hover:bg-black/60 text-xs font-extrabold px-4 py-2 rounded-xl border border-white/10">
             ◀ Mês Anterior
           </button>
           <div className="text-center">
-            <span className="text-xs uppercase font-extrabold tracking-widest block opacity-60">Cronograma Ativo</span>
+            <span className="text-xs uppercase font-extrabold tracking-widest block opacity-60">Mês do Cronograma</span>
             <h2 className="text-base font-black" style={{ color: priceColor }}>{monthNames[month]} / {year}</h2>
           </div>
-          <button onClick={handleNextMonth} className="bg-black/40 hover:bg-black/60 text-xs font-extrabold px-4 py-2 rounded-xl transition border border-white/10">
+          <button onClick={handleNextMonth} className="bg-black/40 hover:bg-black/60 text-xs font-extrabold px-4 py-2 rounded-xl border border-white/10">
             Próximo Mês ▶
           </button>
         </div>
 
-        {/* TAB 1: CLIENTES & CRONOGRAMA DO MÊS */}
+        {/* TAB 1: CLIENTES */}
         {activeTab === 'clientes' && (
           <div className="space-y-6">
-            <h2 className="text-sm font-bold opacity-80">Clientes & Produção de {monthNames[month]} ({clients.length})</h2>
+            <h2 className="text-sm font-bold opacity-80">Clientes da Agência ({clients.length})</h2>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {clients.map(c => {
-                const clientMonthPosts = selectedMonthPosts.filter(p => p.client_id === c.id);
+                const clientMonthPosts = posts.filter(p => {
+                  if (p.client_id !== c.id || !p.scheduled_date) return false;
+                  const d = new Date(p.scheduled_date + 'T00:00:00');
+                  return d.getFullYear() === year && d.getMonth() === month;
+                });
+
                 return (
                   <div key={c.id} className="border border-white/10 p-5 rounded-3xl space-y-4 shadow-xl" style={{ backgroundColor: cardBgColor }}>
                     <div className="flex items-center justify-between">
@@ -351,38 +423,43 @@ export default function DashboardAgencia() {
                           <p className="text-xs opacity-60">{c.company_name || 'Sem Razão Social'}</p>
                         </div>
                       </div>
-                      <button
-                        onClick={() => {
-                          const link = `${window.location.origin}/portal/${c.access_token}`;
-                          navigator.clipboard.writeText(link);
-                          alert("Link do Portal do Cliente copiado!");
-                        }}
-                        className="text-[11px] font-bold px-3 py-1.5 rounded-xl border border-white/10 hover:bg-white/5 transition"
-                        style={{ color: priceColor }}>
-                        🔗 Copiar Portal
-                      </button>
+                      <div className="flex items-center space-x-2">
+                        <button
+                          onClick={() => {
+                            const link = `${window.location.origin}/portal/${c.access_token}`;
+                            navigator.clipboard.writeText(link);
+                            alert("Link do Portal do Cliente copiado!");
+                          }}
+                          className="text-[11px] font-bold px-3 py-1.5 rounded-xl border border-white/10 hover:bg-white/5 transition"
+                          style={{ color: priceColor }}>
+                          🔗 Copiar Portal
+                        </button>
+                        <button onClick={() => handleDeleteClient(c.id, c.name)} className="text-red-400 bg-red-500/10 hover:bg-red-500/20 p-1.5 rounded-xl border border-red-500/20 text-xs">
+                          🗑️
+                        </button>
+                      </div>
                     </div>
 
-                    {/* CRONOGRAMA MENSAL DO CLIENTE */}
+                    {/* CRONOGRAMA DO MÊS */}
                     <div className="bg-black/40 border border-white/5 rounded-2xl p-4 space-y-2">
                       <div className="flex justify-between items-center text-xs border-b border-white/10 pb-2">
-                        <span className="font-bold opacity-80">📌 Cronograma {monthNames[month]}</span>
-                        <span className="font-black text-xs" style={{ color: priceColor }}>{clientMonthPosts.length} Conteúdos</span>
+                        <span className="font-bold opacity-80">📌 Conteúdos de {monthNames[month]}</span>
+                        <span className="font-black text-xs" style={{ color: priceColor }}>{clientMonthPosts.length} Posts</span>
                       </div>
 
                       {clientMonthPosts.length === 0 ? (
-                        <p className="text-xs opacity-40 text-center py-4">Nenhum post agendado para {monthNames[month]}.</p>
+                        <p className="text-xs opacity-40 text-center py-4">Nenhum post agendado neste mês.</p>
                       ) : (
                         <div className="space-y-2 max-h-48 overflow-y-auto pt-1">
                           {clientMonthPosts.map(p => (
-                            <div key={p.id} onClick={() => setSelectedPostDetail(p)} className="bg-gray-900/80 p-2.5 rounded-xl flex justify-between items-center text-xs border border-white/5 cursor-pointer hover:border-white/20 transition">
-                              <div className="truncate max-w-[200px]">
-                                <span className="font-bold block truncate">{p.title}</span>
-                                <span className="text-[10px] opacity-60">📅 {new Date(p.scheduled_date + 'T00:00:00').toLocaleDateString('pt-BR')} às {p.scheduled_time}</span>
+                            <div key={p.id} className="bg-gray-900/80 p-2.5 rounded-xl flex justify-between items-center text-xs border border-white/5">
+                              <span className="font-bold truncate max-w-[180px]">{p.title}</span>
+                              <div className="flex items-center space-x-2">
+                                <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full uppercase ${p.status === 'aprovado' ? 'bg-green-500/20 text-green-400' : p.status === 'ajustes_solicitados' ? 'bg-red-500/20 text-red-400' : 'bg-yellow-500/20 text-yellow-400'}`}>
+                                  {p.status.replace('_', ' ')}
+                                </span>
+                                <button onClick={() => handleDeletePost(p.id)} className="text-red-400 hover:text-red-300 text-[10px]">✕</button>
                               </div>
-                              <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full uppercase ${p.status === 'aprovado' ? 'bg-green-500/20 text-green-400' : p.status === 'ajustes_solicitados' ? 'bg-red-500/20 text-red-400' : 'bg-yellow-500/20 text-yellow-400'}`}>
-                                {p.status.replace('_', ' ')}
-                              </span>
                             </div>
                           ))}
                         </div>
@@ -395,10 +472,10 @@ export default function DashboardAgencia() {
           </div>
         )}
 
-        {/* TAB 2: CONTRATOS & SERVIÇOS INCLUSOS */}
+        {/* TAB 2: CONTRATOS */}
         {activeTab === 'contratos' && (
           <div className="space-y-4">
-            <h2 className="text-sm font-bold opacity-80">Contratos Ativos & Detalhes do Pack</h2>
+            <h2 className="text-sm font-bold opacity-80">Contratos Ativos</h2>
             <div className="space-y-4">
               {contracts.map(cont => (
                 <div key={cont.id} className="border border-white/10 p-6 rounded-3xl space-y-4 shadow-xl" style={{ backgroundColor: cardBgColor }}>
@@ -406,17 +483,23 @@ export default function DashboardAgencia() {
                     <div>
                       <span className="text-xs font-black uppercase tracking-wider block" style={{ color: priceColor }}>{cont.agency_clients?.name}</span>
                       <h3 className="font-extrabold text-lg mt-0.5">{cont.contract_name}</h3>
-                      <p className="text-xs opacity-60">Início: {new Date(cont.start_date + 'T00:00:00').toLocaleDateString('pt-BR')} • Duração: {cont.duration_months}m</p>
+                      <p className="text-xs opacity-60 mt-1">
+                        Duração: {cont.duration_months} meses • Cobrança: <b className="uppercase">{cont.payment_frequency}</b> (R$ {cont.installment_value}/parcela)
+                      </p>
                     </div>
-                    <div className="text-right">
-                      <span className="text-xs opacity-60 block">Valor Mensal</span>
-                      <span className="text-xl font-black text-green-400">R$ {Number(cont.installment_value).toFixed(2)}</span>
+                    <div className="flex items-center space-x-3">
+                      <div className="text-right">
+                        <span className="text-xs opacity-60 block">Valor Mensal</span>
+                        <span className="text-xl font-black text-green-400">R$ {Number(cont.total_monthly_value).toFixed(2)}</span>
+                      </div>
+                      <button onClick={() => handleDeleteContract(cont.id)} className="bg-red-500/10 hover:bg-red-500/20 text-red-400 p-2 rounded-xl border border-red-500/20 text-xs">
+                        🗑️
+                      </button>
                     </div>
                   </div>
 
-                  {/* LISTA DE SERVIÇOS INCLUSOS */}
                   <div className="bg-black/30 border border-white/5 p-4 rounded-2xl space-y-2">
-                    <span className="text-xs font-bold opacity-80 block">🎁 Serviços & Entregáveis do Pack:</span>
+                    <span className="text-xs font-bold opacity-80 block">🎁 Entregáveis / Serviços Inclusos no Pack:</span>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                       {cont.included_services?.split(',').map((serv, idx) => (
                         <div key={idx} className="flex items-center space-x-2 bg-white/5 p-2 rounded-xl border border-white/5">
@@ -432,22 +515,9 @@ export default function DashboardAgencia() {
           </div>
         )}
 
-        {/* TAB 3: FINANCEIRO & DRE COM BAIXA MANUAL E ALERTAS */}
+        {/* TAB 3: FINANCEIRO */}
         {activeTab === 'financeiro' && (
           <div className="space-y-6">
-            
-            {/* ALERTAS DE VENCIMENTO */}
-            {upcomingInvoices.length > 0 && (
-              <div className="bg-yellow-500/10 border border-yellow-500/30 p-4 rounded-3xl flex items-center space-x-3">
-                <span className="text-2xl animate-bounce">⚠️</span>
-                <div>
-                  <h3 className="font-extrabold text-xs text-yellow-400">{upcomingInvoices.length} fatura(s) a vencer nos próximos 3 dias!</h3>
-                  <p className="text-[11px] opacity-80">{upcomingInvoices.map(i => `${i.agency_clients?.name} (R$ ${i.amount})`).join(', ')}</p>
-                </div>
-              </div>
-            )}
-
-            {/* RESUMO DRE */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="border border-white/10 p-5 rounded-3xl space-y-1 shadow-xl" style={{ backgroundColor: cardBgColor }}>
                 <span className="text-xs font-bold opacity-60 block">🟢 Recebido (Pago)</span>
@@ -467,9 +537,8 @@ export default function DashboardAgencia() {
               </div>
             </div>
 
-            {/* TABELA DE FATURAS COM BAIXA MANUAL */}
             <div className="border border-white/10 rounded-3xl p-6 space-y-4 shadow-xl" style={{ backgroundColor: cardBgColor }}>
-              <h3 className="font-extrabold text-sm">Faturas e Controle de Baixa</h3>
+              <h3 className="font-extrabold text-sm">Faturas de Clientes</h3>
               <div className="space-y-2.5 max-h-96 overflow-y-auto">
                 {invoices.map(inv => (
                   <div key={inv.id} className="bg-black/30 border border-white/5 p-3.5 rounded-2xl flex justify-between items-center text-xs">
@@ -502,29 +571,41 @@ export default function DashboardAgencia() {
           </div>
         )}
 
-        {/* TAB 4: CALENDÁRIO MENSAL EM GRADE REAL */}
+        {/* TAB 4: CALENDÁRIO COM FILTRO DE CLIENTE */}
         {activeTab === 'posts' && (
           <div className="space-y-4">
-            <h2 className="text-sm font-bold opacity-80">Calendário de Conteúdos - {monthNames[month]} / {year}</h2>
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border border-white/10 p-4 rounded-3xl" style={{ backgroundColor: cardBgColor }}>
+              <h2 className="text-sm font-bold opacity-80">Calendário de Conteúdos - {monthNames[month]} / {year}</h2>
+
+              {/* FILTRO DE CLIENTE NO CALENDÁRIO */}
+              <div className="flex items-center space-x-2 w-full sm:w-auto">
+                <span className="text-xs font-bold opacity-60 whitespace-nowrap">Filtrar Cliente:</span>
+                <select
+                  value={selectedClientFilter}
+                  onChange={e => setSelectedClientFilter(e.target.value)}
+                  className="bg-black/50 border border-white/10 p-2 rounded-xl text-xs text-white font-bold focus:outline-none w-full sm:w-56">
+                  <option value="ALL">👥 Todos os Clientes</option>
+                  {clients.map(c => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
 
             <div className="border border-white/10 rounded-3xl p-4 shadow-xl overflow-x-auto" style={{ backgroundColor: cardBgColor }}>
-              {/* DIAS DA SEMANA */}
               <div className="grid grid-cols-7 gap-1 text-center font-extrabold text-xs mb-2 py-2 border-b border-white/10" style={{ color: priceColor }}>
                 <div>DOM</div><div>SEG</div><div>TER</div><div>QUA</div><div>QUI</div><div>SEX</div><div>SÁB</div>
               </div>
 
-              {/* GRADE DO MÊS */}
               <div className="grid grid-cols-7 gap-1">
-                {/* ESPAÇOS EM BRANCO ATÉ O PRIMEIRA DIA */}
                 {Array.from({ length: firstDayIndex }).map((_, i) => (
                   <div key={`empty-${i}`} className="h-28 bg-black/20 rounded-2xl opacity-20"></div>
                 ))}
 
-                {/* DIAS DO MÊS */}
                 {Array.from({ length: daysInMonth }).map((_, idx) => {
                   const dayNum = idx + 1;
                   const dayDateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
-                  const dayPosts = posts.filter(p => p.scheduled_date === dayDateStr);
+                  const dayPosts = filteredPosts.filter(p => p.scheduled_date === dayDateStr);
 
                   return (
                     <div key={`day-${dayNum}`} className="h-28 bg-black/40 border border-white/5 rounded-2xl p-1.5 space-y-1 overflow-hidden hover:border-white/20 transition">
@@ -534,11 +615,12 @@ export default function DashboardAgencia() {
                           <div
                             key={p.id}
                             onClick={() => setSelectedPostDetail(p)}
-                            className={`p-1 rounded-lg text-[9px] font-bold truncate cursor-pointer transition ${
+                            className={`p-1.5 rounded-lg text-[9px] font-bold truncate cursor-pointer transition ${
                               p.status === 'aprovado' ? 'bg-green-600/30 text-green-300 border border-green-500/40' :
                               p.status === 'ajustes_solicitados' ? 'bg-red-600/30 text-red-300 border border-red-500/40' :
                               'bg-yellow-600/30 text-yellow-300 border border-yellow-500/40'
                             }`}>
+                            <span className="opacity-70 font-mono block text-[8px]">{p.agency_clients?.name}</span>
                             {p.title}
                           </div>
                         ))}
@@ -553,52 +635,116 @@ export default function DashboardAgencia() {
 
       </main>
 
-      {/* MODAL DE BAIXA MANUAL FINANCEIRA */}
-      {selectedInvoice && (
+      {/* MODAL NOVO CONTRATO COMPLETO */}
+      {showContractModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-          <form onSubmit={handleConfirmPayment} className="border border-white/10 w-full max-w-sm rounded-3xl p-6 space-y-4 shadow-2xl" style={{ backgroundColor: cardBgColor }}>
-            <h3 className="font-extrabold text-sm text-green-400">💵 Confirmar Pagamento Manual</h3>
-            <p className="text-xs opacity-80">Cliente: <b>{selectedInvoice.agency_clients?.name}</b></p>
+          <form onSubmit={handleSaveContract} className="border border-white/10 w-full max-w-md rounded-3xl p-6 space-y-3 shadow-2xl max-h-[90vh] overflow-y-auto" style={{ backgroundColor: cardBgColor }}>
+            <h3 className="font-extrabold text-sm text-purple-400">Novo Contrato e Gerador de Faturas</h3>
+            
             <div>
-              <label className="text-[10px] opacity-60 block mb-1">Valor do Pagamento (R$):</label>
-              <input
-                type="number"
-                step="0.01"
-                required
-                value={paymentAmount}
-                onChange={e => setPaymentAmount(e.target.value)}
-                className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-sm font-bold text-green-400 focus:outline-none"
-              />
+              <label className="text-[10px] opacity-60 block mb-1">Cliente:</label>
+              <select required value={contractForm.client_id} onChange={e => setContractForm({ ...contractForm, client_id: e.target.value })} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white font-bold">
+                <option value="">Selecione o Cliente...</option>
+                {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
             </div>
-            <div className="flex space-x-2">
-              <button type="button" onClick={() => setSelectedInvoice(null)} className="w-1/2 bg-gray-800 text-xs font-bold py-3 rounded-xl">Cancelar</button>
-              <button type="submit" className="w-1/2 bg-green-600 hover:bg-green-700 text-white text-xs font-extrabold py-3 rounded-xl shadow-lg">Confirmar Baixa</button>
+
+            <input type="text" required placeholder="Nome do Pacote (ex: Pack Ouro)" value={contractForm.contract_name} onChange={e => setContractForm({ ...contractForm, contract_name: e.target.value })} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white" />
+            
+            <textarea placeholder="Serviços inclusos (separados por vírgula)" rows={2} value={contractForm.included_services} onChange={e => setContractForm({ ...contractForm, included_services: e.target.value })} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white" />
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-[10px] opacity-60 block mb-1">Valor Mensal (R$):</label>
+                <input type="number" required value={contractForm.total_monthly_value} onChange={e => setContractForm({ ...contractForm, total_monthly_value: e.target.value })} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white font-bold" />
+              </div>
+              <div>
+                <label className="text-[10px] opacity-60 block mb-1">Duração (Meses):</label>
+                <input type="number" required value={contractForm.duration_months} onChange={e => setContractForm({ ...contractForm, duration_months: e.target.value })} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white font-bold" />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-[10px] opacity-60 block mb-1">Frequência Pagamento:</label>
+                <select value={contractForm.payment_frequency} onChange={e => setContractForm({ ...contractForm, payment_frequency: e.target.value })} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white font-bold">
+                  <option value="mensal">Mensal</option>
+                  <option value="quinzenal">Quinzenal</option>
+                  <option value="semanal">Semanal</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-[10px] opacity-60 block mb-1">Valor por Parcela (R$):</label>
+                <input type="number" required value={contractForm.installment_value} onChange={e => setContractForm({ ...contractForm, installment_value: e.target.value })} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-green-400 font-bold" />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-[10px] opacity-60 block mb-1">Data 1ª Parcela / Início:</label>
+              <input type="date" required value={contractForm.start_date} onChange={e => setContractForm({ ...contractForm, start_date: e.target.value })} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white" />
+            </div>
+
+            <div className="flex space-x-2 pt-2">
+              <button type="button" onClick={() => setShowContractModal(false)} className="w-1/2 bg-gray-800 text-xs font-bold py-3 rounded-xl">Cancelar</button>
+              <button type="submit" className="w-1/2 bg-purple-600 text-xs font-extrabold py-3 rounded-xl shadow-lg">Gerar Contrato</button>
             </div>
           </form>
         </div>
       )}
 
-      {/* MODAL DETALHES DO POST */}
-      {selectedPostDetail && (
+      {/* MODAL LANÇAR MÉTRICAS DO INSTAGRAM DO MÊS */}
+      {showMetricsModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-          <div className="border border-white/10 w-full max-w-md rounded-3xl p-6 space-y-4 shadow-2xl" style={{ backgroundColor: cardBgColor }}>
-            <div className="flex justify-between items-center border-b border-white/10 pb-2">
-              <h3 className="font-extrabold text-sm" style={{ color: priceColor }}>{selectedPostDetail.title}</h3>
-              <button onClick={() => setSelectedPostDetail(null)} className="text-xs font-bold opacity-60 hover:opacity-100">✕ Fechar</button>
+          <form onSubmit={handleSaveMetrics} className="border border-white/10 w-full max-w-md rounded-3xl p-6 space-y-3 shadow-2xl" style={{ backgroundColor: cardBgColor }}>
+            <h3 className="font-extrabold text-sm text-pink-400">📊 Lançar Relatório Mensal para o Cliente</h3>
+            
+            <select required value={metricsForm.client_id} onChange={e => setMetricsForm({ ...metricsForm, client_id: e.target.value })} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white font-bold">
+              <option value="">Selecione o Cliente...</option>
+              {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-[10px] opacity-60 block mb-1">Mês/Ano:</label>
+                <input type="month" required value={metricsForm.month_year} onChange={e => setMetricsForm({ ...metricsForm, month_year: e.target.value })} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white" />
+              </div>
+              <div>
+                <label className="text-[10px] opacity-60 block mb-1">Crescimento (%):</label>
+                <input type="text" placeholder="+14%" value={metricsForm.growth_percentage} onChange={e => setMetricsForm({ ...metricsForm, growth_percentage: e.target.value })} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-green-400 font-bold" />
+              </div>
             </div>
-            <div className="h-48 rounded-2xl overflow-hidden bg-gray-800">
-              <img src={selectedPostDetail.media_url || 'https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=400&auto=format&fit=crop&q=80'} alt="Mídia" className="w-full h-full object-cover" />
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-[10px] opacity-60 block mb-1">Alcance Total:</label>
+                <input type="text" placeholder="48.200" value={metricsForm.reach} onChange={e => setMetricsForm({ ...metricsForm, reach: e.target.value })} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white" />
+              </div>
+              <div>
+                <label className="text-[10px] opacity-60 block mb-1">Engajamento:</label>
+                <input type="text" placeholder="3.850" value={metricsForm.engagement} onChange={e => setMetricsForm({ ...metricsForm, engagement: e.target.value })} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white" />
+              </div>
             </div>
-            <div className="text-xs space-y-2 bg-black/30 p-3 rounded-2xl border border-white/5">
-              <p>📅 Data: <b>{new Date(selectedPostDetail.scheduled_date + 'T00:00:00').toLocaleDateString('pt-BR')} às {selectedPostDetail.scheduled_time}</b></p>
-              <p>📝 Legenda: <span className="opacity-80 block mt-1">{selectedPostDetail.copy_text || 'Sem legenda cadastrada.'}</span></p>
-              <p>🏷️ Hashtags: <span className="text-blue-400">{selectedPostDetail.hashtags}</span></p>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-[10px] opacity-60 block mb-1">Novos Seguidores:</label>
+                <input type="text" placeholder="+412" value={metricsForm.followers_gained} onChange={e => setMetricsForm({ ...metricsForm, followers_gained: e.target.value })} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white" />
+              </div>
+              <div>
+                <label className="text-[10px] opacity-60 block mb-1">Impressões Anúncios:</label>
+                <input type="text" placeholder="112.500" value={metricsForm.ad_impressions} onChange={e => setMetricsForm({ ...metricsForm, ad_impressions: e.target.value })} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white" />
+              </div>
             </div>
-          </div>
+
+            <div className="flex space-x-2 pt-2">
+              <button type="button" onClick={() => setShowMetricsModal(false)} className="w-1/2 bg-gray-800 text-xs font-bold py-3 rounded-xl">Cancelar</button>
+              <button type="submit" className="w-1/2 bg-pink-600 text-xs font-extrabold py-3 rounded-xl shadow-lg">Salvar Métricas</button>
+            </div>
+          </form>
         </div>
       )}
 
-      {/* MODAIS (NOVO CLIENTE, NOVO CONTRATO, NOVO POST, NOVA DESPESA) */}
+      {/* DEMAIS MODAIS (CLIENTE, POST, DESPESA, DETALHES, BAIXA) */}
       {showClientModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
           <form onSubmit={handleSaveClient} className="border border-white/10 w-full max-w-md rounded-3xl p-6 space-y-3 shadow-2xl" style={{ backgroundColor: cardBgColor }}>
@@ -611,34 +757,6 @@ export default function DashboardAgencia() {
             <div className="flex space-x-2 pt-2">
               <button type="button" onClick={() => setShowClientModal(false)} className="w-1/2 bg-gray-800 text-xs font-bold py-3 rounded-xl">Cancelar</button>
               <button type="submit" className="w-1/2 text-xs font-extrabold py-3 rounded-xl shadow-lg" style={{ backgroundColor: primaryColor, color: buttonTextColor }}>Salvar Cliente</button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {showContractModal && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-          <form onSubmit={handleSaveContract} className="border border-white/10 w-full max-w-md rounded-3xl p-6 space-y-3 shadow-2xl" style={{ backgroundColor: cardBgColor }}>
-            <h3 className="font-extrabold text-sm text-purple-400">Novo Contrato e Entregáveis do Pack</h3>
-            <select required value={contractForm.client_id} onChange={e => setContractForm({ ...contractForm, client_id: e.target.value })} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white font-bold">
-              <option value="">Selecione o Cliente...</option>
-              {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-            <input type="text" required placeholder="Nome do Pacote (ex: Pack Bronze)" value={contractForm.contract_name} onChange={e => setContractForm({ ...contractForm, contract_name: e.target.value })} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white" />
-            <textarea placeholder="Serviços inclusos (separados por vírgula)" rows={3} value={contractForm.included_services} onChange={e => setContractForm({ ...contractForm, included_services: e.target.value })} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white" />
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-[10px] opacity-60 block mb-1">Valor Mensal (R$):</label>
-                <input type="number" required value={contractForm.total_monthly_value} onChange={e => setContractForm({ ...contractForm, total_monthly_value: e.target.value })} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white font-bold" />
-              </div>
-              <div>
-                <label className="text-[10px] opacity-60 block mb-1">Duração (Meses):</label>
-                <input type="number" required value={contractForm.duration_months} onChange={e => setContractForm({ ...contractForm, duration_months: e.target.value })} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white font-bold" />
-              </div>
-            </div>
-            <div className="flex space-x-2 pt-2">
-              <button type="button" onClick={() => setShowContractModal(false)} className="w-1/2 bg-gray-800 text-xs font-bold py-3 rounded-xl">Cancelar</button>
-              <button type="submit" className="w-1/2 bg-purple-600 text-xs font-extrabold py-3 rounded-xl shadow-lg">Gerar Contrato</button>
             </div>
           </form>
         </div>
@@ -667,18 +785,49 @@ export default function DashboardAgencia() {
         </div>
       )}
 
-      {showExpenseModal && (
+      {selectedInvoice && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-          <form onSubmit={handleSaveExpense} className="border border-white/10 w-full max-w-md rounded-3xl p-6 space-y-3 shadow-2xl" style={{ backgroundColor: cardBgColor }}>
-            <h3 className="font-extrabold text-sm text-red-400">Cadastrar Contas a Pagar / Equipe</h3>
-            <input type="text" required placeholder="Descrição" value={expenseForm.description} onChange={e => setExpenseForm({ ...expenseForm, description: e.target.value })} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white" />
-            <input type="number" required placeholder="Valor (R$)" value={expenseForm.amount} onChange={e => setExpenseForm({ ...expenseForm, amount: e.target.value })} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-red-400 font-bold" />
-            <input type="date" required value={expenseForm.due_date} onChange={e => setExpenseForm({ ...expenseForm, due_date: e.target.value })} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white" />
-            <div className="flex space-x-2 pt-2">
-              <button type="button" onClick={() => setShowExpenseModal(false)} className="w-1/2 bg-gray-800 text-xs font-bold py-3 rounded-xl">Cancelar</button>
-              <button type="submit" className="w-1/2 bg-red-600 text-xs font-extrabold py-3 rounded-xl shadow-lg">Salvar Despesa</button>
+          <form onSubmit={handleConfirmPayment} className="border border-white/10 w-full max-w-sm rounded-3xl p-6 space-y-4 shadow-2xl" style={{ backgroundColor: cardBgColor }}>
+            <h3 className="font-extrabold text-sm text-green-400">💵 Confirmar Pagamento Manual</h3>
+            <p className="text-xs opacity-80">Cliente: <b>{selectedInvoice.agency_clients?.name}</b></p>
+            <div>
+              <label className="text-[10px] opacity-60 block mb-1">Valor Pago (R$):</label>
+              <input
+                type="number"
+                step="0.01"
+                required
+                value={paymentAmount}
+                onChange={e => setPaymentAmount(e.target.value)}
+                className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-sm font-bold text-green-400 focus:outline-none"
+              />
+            </div>
+            <div className="flex space-x-2">
+              <button type="button" onClick={() => setSelectedInvoice(null)} className="w-1/2 bg-gray-800 text-xs font-bold py-3 rounded-xl">Cancelar</button>
+              <button type="submit" className="w-1/2 bg-green-600 hover:bg-green-700 text-white text-xs font-extrabold py-3 rounded-xl shadow-lg">Confirmar Baixa</button>
             </div>
           </form>
+        </div>
+      )}
+
+      {selectedPostDetail && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div className="border border-white/10 w-full max-w-md rounded-3xl p-6 space-y-4 shadow-2xl" style={{ backgroundColor: cardBgColor }}>
+            <div className="flex justify-between items-center border-b border-white/10 pb-2">
+              <h3 className="font-extrabold text-sm" style={{ color: priceColor }}>{selectedPostDetail.title}</h3>
+              <div className="flex items-center space-x-2">
+                <button onClick={() => handleDeletePost(selectedPostDetail.id)} className="bg-red-500/20 text-red-400 text-xs font-bold px-2.5 py-1 rounded-lg">Deletar Post 🗑️</button>
+                <button onClick={() => setSelectedPostDetail(null)} className="text-xs font-bold opacity-60 hover:opacity-100">✕ Fechar</button>
+              </div>
+            </div>
+            <div className="h-48 rounded-2xl overflow-hidden bg-gray-800">
+              <img src={selectedPostDetail.media_url || 'https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=400&auto=format&fit=crop&q=80'} alt="Mídia" className="w-full h-full object-cover" />
+            </div>
+            <div className="text-xs space-y-2 bg-black/30 p-3 rounded-2xl border border-white/5">
+              <p>👤 Cliente: <b>{selectedPostDetail.agency_clients?.name}</b></p>
+              <p>📅 Data: <b>{new Date(selectedPostDetail.scheduled_date + 'T00:00:00').toLocaleDateString('pt-BR')} às {selectedPostDetail.scheduled_time}</b></p>
+              <p>📝 Legenda: <span className="opacity-80 block mt-1">{selectedPostDetail.copy_text || 'Sem legenda cadastrada.'}</span></p>
+            </div>
+          </div>
         </div>
       )}
 
