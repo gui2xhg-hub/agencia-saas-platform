@@ -88,9 +88,11 @@ export default function PublicEventsCalendar() {
     }
   };
 
-  const handleCommercialContact = () => {
+  // REDIRECIONA PARA RESERVA DA DATA ESPECÍFICA VIA WHATSAPP
+  const handleReserveDate = (dateStr) => {
     const targetPhone = (tenant.commercial_whatsapp || tenant.whatsapp || '').replace(/\D/g, '');
-    const message = `Olá! Gostaria de obter mais informações sobre disponibilidade de datas e orçamento no *${tenant.name}*.`;
+    const formattedDate = new Date(dateStr + 'T00:00:00').toLocaleDateString('pt-BR');
+    const message = `Olá! Gostaria de consultar a reserva/orçamento para o dia *${formattedDate}* no *${tenant.name}*.`;
     window.open(`https://wa.me/55${targetPhone}?text=${encodeURIComponent(message)}`, '_blank');
   };
 
@@ -116,7 +118,7 @@ export default function PublicEventsCalendar() {
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans p-2 sm:p-6 max-w-6xl mx-auto flex flex-col justify-between">
       
       <div className="space-y-4 sm:space-y-6">
-        {/* HEADER */}
+        {/* HEADER SEM O BOTÃO FIXO DO TOPO */}
         <header className="border border-slate-800 bg-slate-900/90 backdrop-blur-md p-4 sm:p-6 rounded-2xl sm:rounded-3xl flex flex-col sm:flex-row justify-between items-center gap-4 shadow-2xl text-center sm:text-left">
           <div className="flex flex-col sm:flex-row items-center space-y-2 sm:space-y-0 sm:space-x-4">
             <img 
@@ -131,15 +133,6 @@ export default function PublicEventsCalendar() {
               </p>
             </div>
           </div>
-
-          {/* BOTÃO COMERCIAL PARA CASA DE EVENTOS */}
-          {(tenant.commercial_whatsapp || isVenue) && (
-            <button
-              onClick={handleCommercialContact}
-              className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold px-5 py-3 rounded-2xl text-xs shadow-lg shadow-emerald-600/20 transition flex items-center justify-center space-x-2">
-              <span>💬 Reservar Data / Orçamento</span>
-            </button>
-          )}
         </header>
 
         {/* FILTROS POR CATEGORIA DEDICADOS */}
@@ -196,7 +189,7 @@ export default function PublicEventsCalendar() {
           </button>
         </div>
 
-        {/* GRADE DO CALENDÁRIO */}
+        {/* GRADE DO CALENDÁRIO COM RESERVA NO DIA */}
         <div className="border border-slate-800 bg-slate-900 rounded-2xl sm:rounded-3xl p-1.5 sm:p-4 shadow-xl">
           <div className="grid grid-cols-7 gap-1 text-center font-black text-[9px] sm:text-xs mb-1 sm:mb-2 py-1 sm:py-2 border-b border-slate-800 text-amber-400">
             <div>DOM</div><div>SEG</div><div>TER</div><div>QUA</div><div>QUI</div><div>SEX</div><div>SÁB</div>
@@ -212,20 +205,42 @@ export default function PublicEventsCalendar() {
               const dayDateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
               const dayEvents = filteredEvents.filter(e => e.event_date === dayDateStr);
 
+              // VERIFICA SE O DIA ESTÁ LIVRE OU SE TEM EVENTO DA CATEGORIA 'DISPONIVEL'
+              const hasBookedEvent = dayEvents.some(e => e.category !== 'disponivel');
+              const hasDisponivelEvent = dayEvents.some(e => e.category === 'disponivel');
+              const isFreeDay = isVenue && (!hasBookedEvent || hasDisponivelEvent);
+
               return (
                 <div 
                   key={`day-${dayNum}`} 
-                  className="min-h-[72px] sm:h-28 md:h-32 bg-slate-950/90 border border-slate-800/80 rounded-xl sm:rounded-2xl p-1 sm:p-1.5 space-y-1 overflow-hidden hover:border-amber-500/50 transition">
+                  onClick={() => {
+                    if (isFreeDay) handleReserveDate(dayDateStr);
+                  }}
+                  className={`min-h-[75px] sm:h-28 md:h-32 bg-slate-950/90 border rounded-xl sm:rounded-2xl p-1 sm:p-1.5 flex flex-col justify-between overflow-hidden transition ${
+                    isFreeDay 
+                      ? 'border-emerald-500/30 hover:border-emerald-400 bg-emerald-950/10 cursor-pointer hover:scale-[0.98]' 
+                      : 'border-slate-800/80 hover:border-amber-500/50'
+                  }`}>
                   
-                  <span className="text-[10px] sm:text-xs font-extrabold text-slate-400 block leading-none">{dayNum}</span>
+                  <div className="flex justify-between items-center">
+                    <span className="text-[10px] sm:text-xs font-extrabold text-slate-400 leading-none">{dayNum}</span>
+                    {isFreeDay && (
+                      <span className="text-[8px] font-black text-emerald-400 bg-emerald-500/10 px-1 py-0.5 rounded border border-emerald-500/20">
+                        🟢 Livre
+                      </span>
+                    )}
+                  </div>
                   
-                  <div className="space-y-1 overflow-y-auto max-h-[50px] sm:max-h-20 scrollbar-none">
+                  <div className="space-y-1 overflow-y-auto max-h-[45px] sm:max-h-16 scrollbar-none my-1">
                     {dayEvents.map(ev => {
                       const badge = getCategoryBadge(ev.category);
                       return (
                         <div
                           key={ev.id}
-                          onClick={() => setSelectedEvent(ev)}
+                          onClick={(e) => {
+                            e.stopPropagation(); // Impede de abrir o link do WhatsApp se clicar em um evento ocupado
+                            setSelectedEvent(ev);
+                          }}
                           className={`p-1 rounded-lg text-[8px] sm:text-[9px] font-extrabold truncate cursor-pointer transition border ${badge.bg} hover:scale-95 shadow-sm`}>
                           <span className="block truncate leading-tight">{ev.title}</span>
                           <span className="text-[7px] sm:text-[8px] opacity-80 block leading-tight">{ev.event_time}</span>
@@ -233,6 +248,18 @@ export default function PublicEventsCalendar() {
                       );
                     })}
                   </div>
+
+                  {/* BOTÃO DE RESERVA DENTRO DO DIA LIVRE */}
+                  {isFreeDay && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleReserveDate(dayDateStr);
+                      }}
+                      className="w-full bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/30 text-[8px] sm:text-[9px] font-extrabold py-1 rounded-lg transition text-center mt-auto">
+                      ✨ Reservar
+                    </button>
+                  )}
                 </div>
               );
             })}
@@ -270,6 +297,15 @@ export default function PublicEventsCalendar() {
                 </div>
               )}
             </div>
+
+            {/* BOTÃO RESERVAR SE FOR UMA DATA DISPONÍVEL */}
+            {selectedEvent.category === 'disponivel' && (
+              <button
+                onClick={() => handleReserveDate(selectedEvent.event_date)}
+                className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold py-3.5 rounded-2xl transition text-xs flex items-center justify-center space-x-2 shadow-lg shadow-emerald-600/20">
+                <span>💬 Solicitar Reserva Desta Data</span>
+              </button>
+            )}
 
             {/* BOTÃO COMPRAR INGRESSO SE HOUVER LINK */}
             {selectedEvent.ticket_url && (
