@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../../../lib/supabase';
 
-export default function ChurchAdmin() {
+export default function EventsAdmin() {
   const router = useRouter();
   const { slug } = router.query;
 
@@ -13,20 +13,23 @@ export default function ChurchAdmin() {
   const [tenant, setTenant] = useState(null);
   const [events, setEvents] = useState([]);
 
-  // CAMPO DO INSTAGRAM
+  // CONFIGURAÇÕES DO ESTABELECIMENTO
+  const [segment, setSegment] = useState('igreja');
   const [instagramUrl, setInstagramUrl] = useState('');
+  const [commercialWhatsapp, setCommercialWhatsapp] = useState('');
 
-  // FORMULÁRIO NOVO EVENTO
+  // FORMULÁRIO DE NOVO EVENTO
   const [showModal, setShowModal] = useState(false);
   const [eventForm, setEventForm] = useState({
     title: '',
     category: 'culto',
     event_date: new Date().toISOString().substring(0, 10),
     event_time: '19:30',
-    location: 'Templo Principal',
+    location: 'Espaço Principal',
     speaker: '',
     description: '',
-    image_url: ''
+    image_url: '',
+    ticket_url: ''
   });
 
   useEffect(() => {
@@ -46,7 +49,9 @@ export default function ChurchAdmin() {
         return;
       }
       setTenant(tData);
+      setSegment(tData.segment || 'igreja');
       setInstagramUrl(tData.instagram_url || '');
+      setCommercialWhatsapp(tData.commercial_whatsapp || tData.whatsapp || '');
 
       const { data: eData } = await supabase
         .from('church_events')
@@ -67,20 +72,24 @@ export default function ChurchAdmin() {
     if (adminPasswordInput === tenant?.admin_password || adminPasswordInput === 'master123') {
       setIsAuthenticated(true);
     } else {
-      alert("Senha de líder incorreta!");
+      alert("Senha de acesso incorreta!");
     }
   };
 
-  const handleSaveInstagram = async () => {
+  const handleSaveSettings = async () => {
     const { error } = await supabase
       .from('tenants')
-      .update({ instagram_url: instagramUrl })
+      .update({ 
+        segment: segment,
+        instagram_url: instagramUrl,
+        commercial_whatsapp: commercialWhatsapp
+      })
       .eq('id', tenant.id);
 
     if (error) {
-      alert("Erro ao salvar Instagram: " + error.message);
+      alert("Erro ao salvar configurações: " + error.message);
     } else {
-      alert("Instagram da igreja atualizado com sucesso!");
+      alert("Configurações atualizadas com sucesso!");
     }
   };
 
@@ -100,35 +109,34 @@ export default function ChurchAdmin() {
     setShowModal(false);
     setEventForm({
       title: '',
-      category: 'culto',
+      category: segment === 'casa_de_eventos' ? 'show' : 'culto',
       event_date: new Date().toISOString().substring(0, 10),
       event_time: '19:30',
-      location: 'Templo Principal',
+      location: 'Espaço Principal',
       speaker: '',
       description: '',
-      image_url: ''
+      image_url: '',
+      ticket_url: ''
     });
     alert("Evento cadastrado com sucesso!");
   };
 
   const handleDeleteEvent = async (id) => {
-    if (!confirm("Tem certeza que deseja excluir este evento da agenda?")) return;
+    if (!confirm("Deseja excluir este evento?")) return;
     await supabase.from('church_events').delete().eq('id', id);
     setEvents(events.filter(e => e.id !== id));
   };
 
-  if (loading) return <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center font-sans"><p className="text-xs text-amber-400 animate-pulse">Carregando Painel da Igreja...</p></div>;
-  if (!tenant) return <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center font-sans"><h1 className="text-xl font-bold text-amber-500">Igreja não encontrada</h1></div>;
+  if (loading) return <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center font-sans"><p className="text-xs text-amber-400 animate-pulse">Carregando Painel...</p></div>;
+  if (!tenant) return <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center font-sans"><h1 className="text-xl font-bold text-amber-500">Página não encontrada</h1></div>;
 
-  // TELA DE LOGIN DO ADMIN
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-4 font-sans">
         <form onSubmit={handleLogin} className="bg-slate-900 p-8 rounded-3xl border border-amber-500/30 w-full max-w-sm space-y-5 shadow-2xl">
           <div className="text-center space-y-1">
-            <div className="w-12 h-12 bg-amber-500/10 border border-amber-500/30 text-amber-400 rounded-2xl flex items-center justify-center text-xl mx-auto mb-2">✝️</div>
             <h1 className="text-lg font-bold text-white">{tenant.name}</h1>
-            <p className="text-xs text-slate-400">Painel do Líder / Gestor da Agenda</p>
+            <p className="text-xs text-slate-400">Painel Administrativo da Agenda</p>
           </div>
 
           <div>
@@ -143,7 +151,7 @@ export default function ChurchAdmin() {
           </div>
 
           <button type="submit" className="w-full bg-amber-500 hover:bg-amber-600 font-extrabold py-3.5 rounded-xl text-xs text-slate-950 transition shadow-lg shadow-amber-500/20">
-            Acessar Gestão de Eventos 🔓
+            Acessar Gestão 🔓
           </button>
         </form>
       </div>
@@ -156,12 +164,12 @@ export default function ChurchAdmin() {
       <header className="border border-slate-800 bg-slate-900 p-6 rounded-3xl flex justify-between items-center flex-wrap gap-4 shadow-xl">
         <div>
           <h1 className="text-xl font-black text-white">{tenant.name}</h1>
-          <p className="text-xs font-bold text-amber-400">Gestão de Cultos, Eventos & Redes Sociais</p>
+          <p className="text-xs font-bold text-amber-400">Painel Administrativo de Agenda & Eventos</p>
         </div>
 
         <div className="flex space-x-2">
           <button onClick={() => setShowModal(true)} className="bg-amber-500 hover:bg-amber-600 text-slate-950 font-extrabold px-4 py-2.5 rounded-xl text-xs shadow-lg shadow-amber-500/20 transition">
-            ➕ Cadastrar Evento / Culto
+            ➕ Cadastrar Evento
           </button>
           <a href={`/igreja/${slug}`} target="_blank" rel="noreferrer" className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold px-4 py-2.5 rounded-xl text-xs border border-slate-700 transition">
             👁️ Ver Agenda Pública
@@ -169,45 +177,71 @@ export default function ChurchAdmin() {
         </div>
       </header>
 
-      {/* CONFIGURAÇÃO DO INSTAGRAM DA IGREJA */}
-      <div className="border border-slate-800 bg-slate-900 rounded-3xl p-6 space-y-3 shadow-xl">
-        <h2 className="text-sm font-extrabold text-slate-200">📸 Configuração do Instagram da Igreja</h2>
-        <p className="text-xs text-slate-400">Insira o link ou usuário do Instagram para aparecer no rodapé da agenda pública.</p>
+      {/* CONFIGURAÇÃO DO SEGMENTO E REDES SOCIAIS */}
+      <div className="border border-slate-800 bg-slate-900 rounded-3xl p-6 space-y-4 shadow-xl">
+        <h2 className="text-sm font-extrabold text-slate-200">⚙️ Tipo de Segmento & Contatos Comerciais</h2>
 
-        <div className="flex flex-col sm:flex-row gap-2">
-          <input 
-            type="text" 
-            placeholder="Ex: https://instagram.com/suaigreja ou @suaigreja"
-            value={instagramUrl}
-            onChange={(e) => setInstagramUrl(e.target.value)}
-            className="w-full bg-slate-950 border border-slate-800 p-3 rounded-xl text-xs text-white focus:outline-none focus:border-amber-500"
-          />
-          <button 
-            onClick={handleSaveInstagram}
-            className="bg-purple-600 hover:bg-purple-700 text-white font-extrabold px-5 py-3 sm:py-0 rounded-xl text-xs transition whitespace-nowrap shadow-lg shadow-purple-600/20">
-            💾 Salvar Instagram
-          </button>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div>
+            <label className="text-[11px] font-bold text-slate-400 block mb-1">Segmento do Estabelecimento:</label>
+            <select 
+              value={segment} 
+              onChange={(e) => setSegment(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-800 p-3 rounded-xl text-xs text-white font-bold focus:outline-none focus:border-amber-500">
+              <option value="igreja">✝️ Igreja / Ministério</option>
+              <option value="casa_de_eventos">🏛️ Casa de Eventos / Espaço de Festas</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="text-[11px] font-bold text-slate-400 block mb-1">WhatsApp Comercial (Orçamentos):</label>
+            <input 
+              type="text" 
+              placeholder="Ex: 47996302864"
+              value={commercialWhatsapp}
+              onChange={(e) => setCommercialWhatsapp(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-800 p-3 rounded-xl text-xs text-white focus:outline-none focus:border-amber-500"
+            />
+          </div>
+
+          <div>
+            <label className="text-[11px] font-bold text-slate-400 block mb-1">Instagram do Estabelecimento:</label>
+            <input 
+              type="text" 
+              placeholder="Ex: @sua_pagina"
+              value={instagramUrl}
+              onChange={(e) => setInstagramUrl(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-800 p-3 rounded-xl text-xs text-white focus:outline-none focus:border-amber-500"
+            />
+          </div>
         </div>
+
+        <button 
+          onClick={handleSaveSettings}
+          className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold px-5 py-2.5 rounded-xl text-xs transition shadow-lg shadow-emerald-600/20">
+          💾 Salvar Configurações
+        </button>
       </div>
 
-      {/* LISTA DE EVENTOS GERENCIÁVEIS */}
+      {/* LISTA DE EVENTOS */}
       <div className="border border-slate-800 bg-slate-900 rounded-3xl p-6 space-y-4 shadow-xl">
-        <h2 className="text-sm font-extrabold text-slate-200">Eventos Cadastrados ({events.length})</h2>
+        <h2 className="text-sm font-extrabold text-slate-200">Eventos e Agendamentos ({events.length})</h2>
 
         <div className="space-y-3">
           {events.map(ev => (
             <div key={ev.id} className="bg-slate-950 border border-slate-800/80 p-4 rounded-2xl flex justify-between items-center text-xs flex-wrap gap-3">
               <div className="flex items-center space-x-3">
                 {ev.image_url ? (
-                  <img src={ev.image_url} alt="Encarte" className="w-12 h-12 rounded-xl object-cover bg-slate-800 border border-slate-700" />
+                  <img src={ev.image_url} alt="Banner" className="w-12 h-12 rounded-xl object-cover bg-slate-800 border border-slate-700" />
                 ) : (
-                  <div className="w-12 h-12 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center text-lg">✝️</div>
+                  <div className="w-12 h-12 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center text-lg">📅</div>
                 )}
                 <div>
                   <h3 className="font-bold text-sm text-white">{ev.title}</h3>
                   <p className="text-slate-400 mt-0.5">
-                    📅 {new Date(ev.event_date + 'T00:00:00').toLocaleDateString('pt-BR')} às {ev.event_time} • 📍 {ev.location || 'Templo Principal'}
+                    📅 {new Date(ev.event_date + 'T00:00:00').toLocaleDateString('pt-BR')} às {ev.event_time} • 📍 {ev.location || 'Espaço Principal'}
                   </p>
+                  {ev.ticket_url && <p className="text-[10px] text-amber-400">🎟️ Ingressos: {ev.ticket_url}</p>}
                 </div>
               </div>
 
@@ -219,23 +253,34 @@ export default function ChurchAdmin() {
         </div>
       </div>
 
-      {/* MODAL CADASTRO DE EVENTO */}
+      {/* MODAL NOVO EVENTO */}
       {showModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
           <form onSubmit={handleSaveEvent} className="border border-slate-800 bg-slate-900 w-full max-w-md rounded-3xl p-6 space-y-3 shadow-2xl max-h-[90vh] overflow-y-auto">
-            <h3 className="font-extrabold text-sm text-amber-400">Novo Culto ou Evento da Igreja</h3>
+            <h3 className="font-extrabold text-sm text-amber-400">Novo Evento ou Agendamento</h3>
 
-            <input type="text" required placeholder="Título (ex: Culto de Celebração ou Retiro de Jovens)" value={eventForm.title} onChange={e => setEventForm({ ...eventForm, title: e.target.value })} className="w-full bg-slate-950 border border-slate-800 p-3 rounded-xl text-xs text-white focus:outline-none" />
+            <input type="text" required placeholder="Título do Evento (ex: Show Nacional ou Data Reservada)" value={eventForm.title} onChange={e => setEventForm({ ...eventForm, title: e.target.value })} className="w-full bg-slate-950 border border-slate-800 p-3 rounded-xl text-xs text-white focus:outline-none" />
 
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="text-[10px] text-slate-400 block mb-1">Categoria:</label>
                 <select value={eventForm.category} onChange={e => setEventForm({ ...eventForm, category: e.target.value })} className="w-full bg-slate-950 border border-slate-800 p-3 rounded-xl text-xs text-white font-bold">
-                  <option value="culto">✝️ Culto</option>
-                  <option value="evento">🎉 Evento Especial</option>
-                  <option value="reuniao">👥 Reunião / Célula</option>
-                  <option value="jovens">🔥 Rede de Jovens</option>
-                  <option value="ensaio">🎵 Ensaio de Louvor</option>
+                  {segment === 'casa_de_eventos' ? (
+                    <>
+                      <option value="show">🎉 Show / Festa</option>
+                      <option value="disponivel">📅 Data Disponível</option>
+                      <option value="casamento">💍 Casamento / Social</option>
+                      <option value="formatura">🎓 Formatura / Corp.</option>
+                    </>
+                  ) : (
+                    <>
+                      <option value="culto">✝️ Culto</option>
+                      <option value="evento">🎉 Evento Especial</option>
+                      <option value="reuniao">👥 Reunião / Célula</option>
+                      <option value="jovens">🔥 Rede de Jovens</option>
+                      <option value="ensaio">🎵 Ensaio</option>
+                    </>
+                  )}
                 </select>
               </div>
               <div>
@@ -251,19 +296,21 @@ export default function ChurchAdmin() {
               </div>
               <div>
                 <label className="text-[10px] text-slate-400 block mb-1">Local:</label>
-                <input type="text" placeholder="Templo Principal" value={eventForm.location} onChange={e => setEventForm({ ...eventForm, location: e.target.value })} className="w-full bg-slate-950 border border-slate-800 p-3 rounded-xl text-xs text-white" />
+                <input type="text" placeholder="Espaço Principal" value={eventForm.location} onChange={e => setEventForm({ ...eventForm, location: e.target.value })} className="w-full bg-slate-950 border border-slate-800 p-3 rounded-xl text-xs text-white" />
               </div>
             </div>
 
-            <input type="text" placeholder="Preletor / Pregador (Opcional)" value={eventForm.speaker} onChange={e => setEventForm({ ...eventForm, speaker: e.target.value })} className="w-full bg-slate-950 border border-slate-800 p-3 rounded-xl text-xs text-white" />
+            <input type="text" placeholder="Atração / Pregador / Banda (Opcional)" value={eventForm.speaker} onChange={e => setEventForm({ ...eventForm, speaker: e.target.value })} className="w-full bg-slate-950 border border-slate-800 p-3 rounded-xl text-xs text-white" />
 
-            <input type="url" placeholder="URL da Imagem do Encarte / Banner (Opcional)" value={eventForm.image_url} onChange={e => setEventForm({ ...eventForm, image_url: e.target.value })} className="w-full bg-slate-950 border border-slate-800 p-3 rounded-xl text-xs text-white" />
+            <input type="url" placeholder="Link para Venda de Ingressos (Ex: https://sympla.com.br/...)" value={eventForm.ticket_url} onChange={e => setEventForm({ ...eventForm, ticket_url: e.target.value })} className="w-full bg-slate-950 border border-slate-800 p-3 rounded-xl text-xs text-white" />
+
+            <input type="url" placeholder="URL da Imagem do Banner (Opcional)" value={eventForm.image_url} onChange={e => setEventForm({ ...eventForm, image_url: e.target.value })} className="w-full bg-slate-950 border border-slate-800 p-3 rounded-xl text-xs text-white" />
 
             <textarea placeholder="Descrição / Programação detalhada" rows={3} value={eventForm.description} onChange={e => setEventForm({ ...eventForm, description: e.target.value })} className="w-full bg-slate-950 border border-slate-800 p-3 rounded-xl text-xs text-white" />
 
             <div className="flex space-x-2 pt-2">
               <button type="button" onClick={() => setShowModal(false)} className="w-1/2 bg-slate-800 text-xs font-bold py-3 rounded-xl">Cancelar</button>
-              <button type="submit" className="w-1/2 bg-amber-500 text-slate-950 font-extrabold py-3 rounded-xl shadow-lg">Salvar na Agenda</button>
+              <button type="submit" className="w-1/2 bg-amber-500 text-slate-950 font-extrabold py-3 rounded-xl shadow-lg">Salvar Evento</button>
             </div>
           </form>
         </div>
