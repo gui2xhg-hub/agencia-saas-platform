@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../../../lib/supabase';
 
-export default function ChurchMemberCalendar() {
+export default function PublicEventsCalendar() {
   const router = useRouter();
   const { slug } = router.query;
 
@@ -10,7 +10,6 @@ export default function ChurchMemberCalendar() {
   const [tenant, setTenant] = useState(null);
   const [events, setEvents] = useState([]);
   
-  // NAVEGAÇÃO E FILTROS
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedCategory, setSelectedCategory] = useState('ALL');
   const [selectedEvent, setSelectedEvent] = useState(null);
@@ -47,7 +46,8 @@ export default function ChurchMemberCalendar() {
     }
   };
 
-  // NAVEGAÇÃO DE MÊS
+  const isVenue = tenant?.segment === 'casa_de_eventos';
+
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
 
@@ -56,7 +56,6 @@ export default function ChurchMemberCalendar() {
 
   const monthNames = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 
-  // FILTRAGEM DE EVENTOS
   const filteredEvents = events.filter(e => {
     if (!e.event_date) return false;
     const d = new Date(e.event_date + 'T00:00:00');
@@ -69,84 +68,127 @@ export default function ChurchMemberCalendar() {
   const firstDayIndex = new Date(year, month, 1).getDay();
 
   const getCategoryBadge = (cat) => {
-    switch (cat) {
-      case 'culto': return { label: '✝️ Culto', bg: 'bg-amber-500/20 text-amber-400 border-amber-500/30' };
-      case 'evento': return { label: '🎉 Evento', bg: 'bg-purple-500/20 text-purple-400 border-purple-500/30' };
-      case 'reuniao': return { label: '👥 Reunião', bg: 'bg-blue-500/20 text-blue-400 border-blue-500/30' };
-      case 'ensaio': return { label: '🎵 Ensaio', bg: 'bg-green-500/20 text-green-400 border-green-500/30' };
-      case 'jovens': return { label: '🔥 Jovens', bg: 'bg-red-500/20 text-red-400 border-red-500/30' };
-      default: return { label: '📌 Atividade', bg: 'bg-gray-500/20 text-gray-300 border-gray-500/30' };
+    if (isVenue) {
+      switch (cat) {
+        case 'show': return { label: '🎉 Show / Festa', bg: 'bg-purple-500/20 text-purple-300 border-purple-500/30' };
+        case 'disponivel': return { label: '📅 Data Disponível', bg: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' };
+        case 'casamento': return { label: '💍 Casamento / Social', bg: 'bg-pink-500/20 text-pink-300 border-pink-500/30' };
+        case 'formatura': return { label: '🎓 Formatura / Corp.', bg: 'bg-blue-500/20 text-blue-300 border-blue-500/30' };
+        default: return { label: '📌 Evento', bg: 'bg-gray-500/20 text-gray-300 border-gray-500/30' };
+      }
+    } else {
+      switch (cat) {
+        case 'culto': return { label: '✝️ Culto', bg: 'bg-amber-500/20 text-amber-400 border-amber-500/30' };
+        case 'evento': return { label: '🎉 Evento', bg: 'bg-purple-500/20 text-purple-400 border-purple-500/30' };
+        case 'reuniao': return { label: '👥 Reunião', bg: 'bg-blue-500/20 text-blue-400 border-blue-500/30' };
+        case 'ensaio': return { label: '🎵 Ensaio', bg: 'bg-green-500/20 text-green-400 border-green-500/30' };
+        case 'jovens': return { label: '🔥 Jovens', bg: 'bg-red-500/20 text-red-400 border-red-500/30' };
+        default: return { label: '📌 Atividade', bg: 'bg-gray-500/20 text-gray-300 border-gray-500/30' };
+      }
     }
+  };
+
+  const handleCommercialContact = () => {
+    const targetPhone = (tenant.commercial_whatsapp || tenant.whatsapp || '').replace(/\D/g, '');
+    const message = `Olá! Gostaria de obter mais informações sobre disponibilidade de datas e orçamento no *${tenant.name}*.`;
+    window.open(`https://wa.me/55${targetPhone}?text=${encodeURIComponent(message)}`, '_blank');
   };
 
   const handleShareWhatsApp = (ev) => {
     const formattedDate = new Date(ev.event_date + 'T00:00:00').toLocaleDateString('pt-BR');
-    const text = `✝️ *${ev.title}* — ${tenant.name}\n\n` +
+    let text = `✨ *${ev.title}* — ${tenant.name}\n\n` +
       `📅 *Data:* ${formattedDate} às ${ev.event_time}\n` +
-      `📍 *Local:* ${ev.location || 'Templo Principal'}\n` +
-      (ev.speaker ? `👤 *Preletor:* ${ev.speaker}\n` : '') +
-      `\n${ev.description || 'Venha participar conosco e traga sua família!'}\n\n` +
-      `🔗 Veja a programação completa: ${window.location.href}`;
+      `📍 *Local:* ${ev.location || 'Espaço Principal'}\n`;
+    
+    if (ev.speaker) text += `👤 *Atração/Ministro:* ${ev.speaker}\n`;
+    if (ev.ticket_url) text += `🎟️ *Comprar Ingresso:* ${ev.ticket_url}\n`;
+    
+    text += `\n${ev.description || 'Confira os detalhes na nossa programação!'}\n\n` +
+      `🔗 Acesse: ${window.location.href}`;
 
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
   };
 
-  if (loading) return <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center font-sans"><p className="text-xs text-amber-400 animate-pulse">Carregando Agenda da Igreja...</p></div>;
-  if (!tenant) return <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center font-sans"><h1 className="text-xl font-bold text-amber-500">Igreja não encontrada</h1></div>;
+  if (loading) return <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center font-sans"><p className="text-xs text-amber-400 animate-pulse">Carregando programação...</p></div>;
+  if (!tenant) return <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center font-sans"><h1 className="text-xl font-bold text-amber-500">Página não encontrada</h1></div>;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans p-2 sm:p-6 max-w-6xl mx-auto flex flex-col justify-between">
       
       <div className="space-y-4 sm:space-y-6">
-        {/* HEADER DA IGREJA */}
-        <header className="border border-slate-800 bg-slate-900/90 backdrop-blur-md p-4 sm:p-6 rounded-2xl sm:rounded-3xl flex flex-col sm:flex-row justify-between items-center gap-3 shadow-2xl text-center sm:text-left">
+        {/* HEADER */}
+        <header className="border border-slate-800 bg-slate-900/90 backdrop-blur-md p-4 sm:p-6 rounded-2xl sm:rounded-3xl flex flex-col sm:flex-row justify-between items-center gap-4 shadow-2xl text-center sm:text-left">
           <div className="flex flex-col sm:flex-row items-center space-y-2 sm:space-y-0 sm:space-x-4">
             <img 
               src={tenant.logo_url || 'https://images.unsplash.com/photo-1548625149-fc4a29cf7092?w=150&auto=format&fit=crop&q=80'} 
-              alt="Logo Church" 
+              alt="Logo" 
               className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl object-cover bg-slate-800 border border-slate-700 shadow-lg" 
             />
             <div>
               <h1 className="text-lg sm:text-xl font-black text-white">{tenant.name}</h1>
-              <p className="text-[11px] sm:text-xs font-bold text-amber-400 mt-0.5">Programação Mensal & Agenda de Eventos</p>
+              <p className="text-[11px] sm:text-xs font-bold text-amber-400 mt-0.5">
+                {isVenue ? '🏛️ Agenda de Eventos & Locação de Espaço' : '✝️ Programação Mensal & Agenda de Eventos'}
+              </p>
             </div>
           </div>
 
-          <a 
-            href={`/igreja/${slug}/admin`} 
-            className="w-full sm:w-auto bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold px-4 py-2 rounded-xl text-xs border border-slate-700 transition">
-            🔐 Área do Líder / Admin
-          </a>
+          {/* BOTÃO COMERCIAL PARA CASA DE EVENTOS */}
+          {(tenant.commercial_whatsapp || isVenue) && (
+            <button
+              onClick={handleCommercialContact}
+              className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold px-5 py-3 rounded-2xl text-xs shadow-lg shadow-emerald-600/20 transition flex items-center justify-center space-x-2">
+              <span>💬 Reservar Data / Orçamento</span>
+            </button>
+          )}
         </header>
 
-        {/* FILTROS POR CATEGORIA */}
+        {/* FILTROS POR CATEGORIA DEDICADOS */}
         <div className="flex space-x-1.5 sm:space-x-2 overflow-x-auto pb-1 scrollbar-none">
-          {[
-            { id: 'ALL', label: '🌟 Todos' },
-            { id: 'culto', label: '✝️ Cultos' },
-            { id: 'evento', label: '🎉 Eventos' },
-            { id: 'reuniao', label: '👥 Reuniões' },
-            { id: 'jovens', label: '🔥 Jovens' },
-            { id: 'ensaio', label: '🎵 Ensaios' }
-          ].map(cat => (
-            <button
-              key={cat.id}
-              onClick={() => setSelectedCategory(cat.id)}
-              className={`px-3 py-2 rounded-xl text-[11px] sm:text-xs font-bold border transition whitespace-nowrap ${
-                selectedCategory === cat.id ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-lg shadow-amber-500/20' : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
-              }`}>
-              {cat.label}
-            </button>
-          ))}
+          {isVenue ? (
+            [
+              { id: 'ALL', label: '🌟 Todos' },
+              { id: 'disponivel', label: '📅 Datas Disponíveis' },
+              { id: 'show', label: '🎉 Shows & Festas' },
+              { id: 'casamento', label: '💍 Casamentos' },
+              { id: 'formatura', label: '🎓 Formaturas' }
+            ].map(cat => (
+              <button
+                key={cat.id}
+                onClick={() => setSelectedCategory(cat.id)}
+                className={`px-3 py-2 rounded-xl text-[11px] sm:text-xs font-bold border transition whitespace-nowrap ${
+                  selectedCategory === cat.id ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-lg shadow-amber-500/20' : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
+                }`}>
+                {cat.label}
+              </button>
+            ))
+          ) : (
+            [
+              { id: 'ALL', label: '🌟 Todos' },
+              { id: 'culto', label: '✝️ Cultos' },
+              { id: 'evento', label: '🎉 Eventos' },
+              { id: 'reuniao', label: '👥 Reuniões' },
+              { id: 'jovens', label: '🔥 Jovens' },
+              { id: 'ensaio', label: '🎵 Ensaios' }
+            ].map(cat => (
+              <button
+                key={cat.id}
+                onClick={() => setSelectedCategory(cat.id)}
+                className={`px-3 py-2 rounded-xl text-[11px] sm:text-xs font-bold border transition whitespace-nowrap ${
+                  selectedCategory === cat.id ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-lg shadow-amber-500/20' : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
+                }`}>
+                {cat.label}
+              </button>
+            ))
+          )}
         </div>
 
-        {/* CONTROLE MENSAL */}
+        {/* NAVEGAÇÃO DE MÊS */}
         <div className="border border-slate-800 bg-slate-900 p-3 sm:p-4 rounded-2xl sm:rounded-3xl flex justify-between items-center shadow-xl">
           <button onClick={handlePrevMonth} className="bg-slate-950 hover:bg-slate-800 text-[10px] sm:text-xs font-extrabold px-3 py-2 rounded-xl border border-slate-800 transition">
             ◀ Mês Ant.
           </button>
           <div className="text-center">
-            <span className="text-[8px] sm:text-[10px] uppercase font-bold text-slate-400 block tracking-widest">Agenda Ativa</span>
+            <span className="text-[8px] sm:text-[10px] uppercase font-bold text-slate-400 block tracking-widest">Calendário</span>
             <h2 className="text-xs sm:text-base font-black text-amber-400">{monthNames[month]} / {year}</h2>
           </div>
           <button onClick={handleNextMonth} className="bg-slate-950 hover:bg-slate-800 text-[10px] sm:text-xs font-extrabold px-3 py-2 rounded-xl border border-slate-800 transition">
@@ -154,14 +196,12 @@ export default function ChurchMemberCalendar() {
           </button>
         </div>
 
-        {/* GRADE DO CALENDÁRIO RESPONSIVA (PC E MOBILE) */}
+        {/* GRADE DO CALENDÁRIO */}
         <div className="border border-slate-800 bg-slate-900 rounded-2xl sm:rounded-3xl p-1.5 sm:p-4 shadow-xl">
-          {/* DIAS DA SEMANA */}
           <div className="grid grid-cols-7 gap-1 text-center font-black text-[9px] sm:text-xs mb-1 sm:mb-2 py-1 sm:py-2 border-b border-slate-800 text-amber-400">
             <div>DOM</div><div>SEG</div><div>TER</div><div>QUA</div><div>QUI</div><div>SEX</div><div>SÁB</div>
           </div>
 
-          {/* DIAS DO MÊS */}
           <div className="grid grid-cols-7 gap-1">
             {Array.from({ length: firstDayIndex }).map((_, i) => (
               <div key={`empty-${i}`} className="min-h-[70px] sm:h-28 md:h-32 bg-slate-950/40 rounded-xl sm:rounded-2xl opacity-20"></div>
@@ -200,7 +240,7 @@ export default function ChurchMemberCalendar() {
         </div>
       </div>
 
-      {/* MODAL DETALHES DO EVENTO / ENCARTE */}
+      {/* MODAL DETALHES DO EVENTO */}
       {selectedEvent && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="border border-slate-800 bg-slate-900 w-full max-w-lg rounded-3xl p-5 sm:p-6 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
@@ -215,52 +255,61 @@ export default function ChurchMemberCalendar() {
 
             {selectedEvent.image_url && (
               <div className="h-56 sm:h-64 rounded-2xl overflow-hidden bg-slate-800 border border-slate-700 shadow-lg">
-                <img src={selectedEvent.image_url} alt="Encarte" className="w-full h-full object-cover" />
+                <img src={selectedEvent.image_url} alt="Banner" className="w-full h-full object-cover" />
               </div>
             )}
 
             <div className="text-xs space-y-2 bg-slate-950 p-4 rounded-2xl border border-slate-800">
               <p>📅 Data: <b className="text-amber-400">{new Date(selectedEvent.event_date + 'T00:00:00').toLocaleDateString('pt-BR')} às {selectedEvent.event_time}</b></p>
-              <p>📍 Local: <b>{selectedEvent.location || 'Templo Principal'}</b></p>
-              {selectedEvent.speaker && <p>👤 Preletor/Ministro: <b className="text-purple-400">{selectedEvent.speaker}</b></p>}
+              <p>📍 Local: <b>{selectedEvent.location || 'Espaço Principal'}</b></p>
+              {selectedEvent.speaker && <p>👤 Atração / Ministro: <b className="text-purple-400">{selectedEvent.speaker}</b></p>}
               {selectedEvent.description && (
                 <div className="pt-2 border-t border-slate-800/80">
-                  <span className="text-slate-400 block mb-1">Descrição / Programação:</span>
+                  <span className="text-slate-400 block mb-1">Descrição:</span>
                   <p className="text-slate-300 leading-relaxed">{selectedEvent.description}</p>
                 </div>
               )}
             </div>
 
+            {/* BOTÃO COMPRAR INGRESSO SE HOUVER LINK */}
+            {selectedEvent.ticket_url && (
+              <a
+                href={selectedEvent.ticket_url.startsWith('http') ? selectedEvent.ticket_url : `https://${selectedEvent.ticket_url}`}
+                target="_blank"
+                rel="noreferrer"
+                className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-black py-3.5 rounded-2xl transition text-xs flex items-center justify-center space-x-2 shadow-lg shadow-amber-500/20">
+                <span>🎟️ Comprar Ingresso Online</span>
+              </a>
+            )}
+
             <button
               onClick={() => handleShareWhatsApp(selectedEvent)}
               className="w-full bg-green-600 hover:bg-green-700 text-white font-extrabold py-3.5 rounded-2xl transition text-xs flex items-center justify-center space-x-2 shadow-lg shadow-green-600/20">
-              <span>📲 Convidar no WhatsApp</span>
+              <span>📲 Compartilhar no WhatsApp</span>
             </button>
           </div>
         </div>
       )}
 
-      {/* RODAPÉ PROFISSIONAL */}
+      {/* RODAPÉ */}
       <footer className="mt-10 border-t border-slate-800/80 pt-6 pb-4 text-center text-xs text-slate-400 space-y-4">
         <div className="flex flex-col sm:flex-row items-center justify-between gap-3 max-w-6xl mx-auto px-2">
-          {/* LOGO E NOME DA IGREJA */}
           <div className="flex items-center space-x-2.5">
             <img 
               src={tenant.logo_url || 'https://images.unsplash.com/photo-1548625149-fc4a29cf7092?w=150&auto=format&fit=crop&q=80'} 
-              alt="Logo Igreja" 
+              alt="Logo" 
               className="w-7 h-7 rounded-lg object-cover bg-slate-800 border border-slate-700" 
             />
             <span className="font-bold text-white text-xs sm:text-sm">{tenant.name}</span>
           </div>
 
-          {/* INSTAGRAM DA IGREJA */}
           {tenant.instagram_url && (
             <a 
               href={tenant.instagram_url.startsWith('http') ? tenant.instagram_url : `https://instagram.com/${tenant.instagram_url.replace('@', '')}`} 
               target="_blank" 
               rel="noreferrer"
               className="inline-flex items-center space-x-2 bg-gradient-to-r from-purple-600 via-pink-600 to-amber-500 text-white font-extrabold px-3.5 py-1.5 rounded-xl text-[11px] shadow-lg hover:opacity-90 transition">
-              <span>📸 Siga no Instagram</span>
+              <span>📸 Instagram</span>
             </a>
           )}
         </div>
@@ -270,7 +319,7 @@ export default function ChurchMemberCalendar() {
           <p className="flex items-center space-x-1">
             <span>Desenvolvido por</span>
             <a 
-              href="https://wa.me/5547996302864?text=Ol%C3%A1!%20Vim%20pelo%20sistema%20da%20igreja%20e%20gostaria%20de%20saber%20mais%20sobre%20os%20seus%20servi%C3%A7os." 
+              href="https://wa.me/5547996302864?text=Ol%C3%A1!%20Gostaria%20de%20saber%20mais%20sobre%20os%20seus%20servi%C3%A7os." 
               target="_blank" 
               rel="noreferrer" 
               className="font-bold text-amber-400 hover:text-amber-300 underline transition">
